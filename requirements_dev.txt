@@ -1,0 +1,6 @@
+pip==19.0.3
+wheel==0.33.1
+numpy==1.16.2
+more-itertools==6.0.0
+
+
