@@ -1,0 +1,10 @@
+README.md
+setup.py
+autoscorer/__init__.py
+autoscorer/autoscorer.py
+autoscorer.egg-info/PKG-INFO
+autoscorer.egg-info/SOURCES.txt
+autoscorer.egg-info/dependency_links.txt
+autoscorer.egg-info/top_level.txt
+autoscorer/autoscorer_helpers/__init__.py
+autoscorer/autoscorer_helpers/autoscorer_helpers.py
