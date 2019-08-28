@@ -9,20 +9,20 @@ Created on Fri Aug  2 09:38:26 2019
 import numpy as np
 import more_itertools
 from pathlib import Path
-from autoscorer_helpers import (get_data,
-                                    make_event_idx,
-                                    convert_to_rem_idx,
-                                    tuple_builder,
-                                    sequence_builder)
+from autoscorer_helpers.autoscorer_helpers import (get_data,
+                                                   make_event_idx,
+                                                   convert_to_rem_idx,
+                                                   tuple_builder,
+                                                   sequence_builder)
 #import doctest
 
-class rule_based_scorer(object):
+class autoscorer(object):
     """ Returns the times of T events and P events scored according to
     *interpretations* of the AASM guidelines for a given sleep study.
-    
+
     INPUT: Sleeper ID (ID) and path to data files (data_path). Assumes
     data files are pickled dictionaries of the format:
-        
+
         {
             "ID":ID (str),
             "start_time":start_time_in_seconds (float),
@@ -30,78 +30,78 @@ class rule_based_scorer(object):
             "events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str),
             "signals":{"channel_i":array(n_seconds, sampling_rate)}
         }
-    
+
     OUTPUT: Dictionary of scored REM subsequences in the format:
-        {'RSWA_P': {'REM_0': {scores}, .., 'REM_n': {scores}}, 
+        {'RSWA_P': {'REM_0': {scores}, .., 'REM_n': {scores}},
         'RSWA_T': {'REM_0': {scores}, .., 'REM_n': {scores}}}
-    
+
     PARAMETERS:
         f_s: Sampling rate in Hz. The signal data is assumed to have the dimensions
             seconds by sampling rate. An assertion error will be raised if f_s
             is set incorrectly.
-        
-        t_amplitude_threshold: the multiple of the non_REM minimum that the 
+
+        t_amplitude_threshold: the multiple of the non_REM minimum that the
             elements in data must exceed in order to be given a value of one.
             This value should be greater than zero.
-        
-        t_continuity threshold: the number of consecutive samples above the 
-            t_amplitude_threshold that must be observed in order for a sequence of 
+
+        t_continuity threshold: the number of consecutive samples above the
+            t_amplitude_threshold that must be observed in order for a sequence of
             elements in data to be considered as a qualifying tonic signal-level
             event.
-        
-        p_mode: Can be set to 'mean', 'quantile', or 'stdev'. 
-            
-            'mean': phasic amplitudes must exceed the product of the 
-            mean of the REM baseline and p_amplitude_threshold in order to be 
-            considered a phasic signal-level event. 
-            
+
+        p_mode: Can be set to 'mean', 'quantile', or 'stdev'.
+
+            'mean': phasic amplitudes must exceed the product of the
+            mean of the REM baseline and p_amplitude_threshold in order to be
+            considered a phasic signal-level event.
+
             'quantile': phasic amplitudes must exceed the value given
             by a quantile of the REM baseline (given by p_quantile) in order to
             be considered a phasic signal-level event.
-            
+
             'stdev': phasic amplitudes must be p_amplitude_threshold
             standard deviations above the mean of the REM baseline in order to
             be considered a phasic signal-level event.
-        
+
         p_amplitude_threshold: the mulitple by which phasic ampltudes must
             exceed the mean (or the number of standard deviations by which
-            the phasic amplitudes must exceed the mean, depending on p_mode) in 
+            the phasic amplitudes must exceed the mean, depending on p_mode) in
             order to be considered a phasic signal-level event.
-        
-        p_quantile: the quantile of the REM baseline signal that must be 
+
+        p_quantile: the quantile of the REM baseline signal that must be
             exceeded in order for a phasic signal to be considered a phasic
             event when p_mode is set to 'quantile.'
-        
-        p_continuity_threshold: the minimum number of consecutive samples 
-            exceeding the phasic amplitude threshold in order for a signal to 
+
+        p_continuity_threshold: the minimum number of consecutive samples
+            exceeding the phasic amplitude threshold in order for a signal to
             be considered a phasic singal-level event.
-        
+
         p_baseline_length: The number of seconds that should be considered
             as the baseline when scoring phasic events. Must be a number greater
             than zero. When a sample is being considered that is more than
             p_baseline_length seconds from the start of the REM subsequence,
             the previous p_baseline_length seconds are considered from the current
-            sample. When a sample is less than p_baseline_length seconds from 
+            sample. When a sample is less than p_baseline_length seconds from
             the start of the REM subsequence, the first p_baseline_length seconds
             are used as the baseline.
-            
+
         ignore_hypoxics_duration: The number of seconds before and after hypopnea
             or apnea events that are ignored. For instance, if set to 0, then
             only phasic and tonic events that occur during the specified
             interval are ignored. Typical values are 0 - 30.
-        
+
         return_seq: If set to True, a sequence of 1's and 0's is returned in
             which a 1 indicates a qualifying Tonic or Phasic event and a 0
             indicates a non-event. There is one value per sample in the
             input signal data. The tonic sequence is 1-D because tonic events
             are scored using only Chin EMG channels. The phasic sequence is
             either a 1-D sequence in which the sequences from the L Leg, R Leg,
-            and Chin channels are collapsed into a single sequence (if 
-            return_concat is True) or is a length of signal X 3 array, in which 
-            the first row corresponds to the 'Chin' channel, the second to the 
+            and Chin channels are collapsed into a single sequence (if
+            return_concat is True) or is a length of signal X 3 array, in which
+            the first row corresponds to the 'Chin' channel, the second to the
             'L Leg' and the third to the 'R Leg' (if return_concat is False).
             One, and only one, of return_seq and return_tuple must be set to True.
-        
+
         return_concat: If set to False, a length of signal X 3 array is returned,
             in which each row corresponds to the signal-level phasic events
             in each channel ('Chin', 'L Leg', and 'R Leg', respectively). If false,
@@ -110,63 +110,63 @@ class rule_based_scorer(object):
             a 1 anywhere in the corresponding column and a value of 0 if the column
             only contains zeros. An assertion error will be raised if return_concat
             is set to True and return_tuple is set to True.
-            
+
         return_tuple: If set to true, signal-level events are returned as a list
             of tuples. Each tuple follows the format:
-                
+
                 (event_start_time, event_end_time, event_type)
-            
+
             Event_start_time and Event_end_times are in units of study time.
             One, and only one, of return_seq and return_tuple must be set to True.
-            
-        verbose: If set to True, ID and REM subsequence number will be printed 
+
+        verbose: If set to True, ID and REM subsequence number will be printed
             out during scoring.
 
     """
-    
+
     def __init__(self, ID= 'XAXVDJYND6ZBY93', data_path = '/Users/danielyaeger/Documents/processed_data/Rectified_and_Resampled',
                  f_s = 100, t_amplitude_threshold = 0.05,
-                 t_continuity_threshold = 100, p_mode = 'mean', 
+                 t_continuity_threshold = 100, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
                  p_continuity_threshold = 10, p_baseline_length = 120,
-                 ignore_hypoxics_duration = 15, return_seq = False, 
+                 ignore_hypoxics_duration = 15, return_seq = False,
                  return_concat = False, return_tuple = True, verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)
         self.data_path = data_path
         self.f_s = f_s
-       
+
         assert t_amplitude_threshold >= 0, "T Ampltiude threshold should be greater than or equal to zero!"
         self.t_amplitude_threshold = t_amplitude_threshold
-        
+
         assert t_continuity_threshold >= 1, "T Continuity threshold should be greater than or equal to one!"
         self.t_continuity_threshold = t_continuity_threshold
-        
+
         assert p_continuity_threshold >= 1, "P Continuity threshold should be greater than or equal to one!"
         self.p_continuity_threshold = p_continuity_threshold
-        
+
         assert p_amplitude_threshold >= 0, "P Amplitude threshold should be greater than or equal to zero!"
         self.p_amplitude_threshold = p_amplitude_threshold
-        
+
         assert 0 <= p_quantile <= 1, "P quantile threshold must be between 0 and 1!"
         self.p_quantile = p_quantile
-        
+
         assert p_mode in ['quantile', 'mean', 'stdev']
         self.p_mode = p_mode
-        
+
         # Baseline length is in epochs
         assert p_baseline_length > 0, "Baseline length must be greater than 0!"
         self.p_baseline_length = p_baseline_length
-        
+
         assert ignore_hypoxics_duration >= 0, "ignore_hypoxics_duration must be greater than or equal to 0!"
-        self.ignore_hypoxics_duration = ignore_hypoxics_duration        
-        
+        self.ignore_hypoxics_duration = ignore_hypoxics_duration
+
         assert (return_seq) ^ (return_tuple), "Only one return_seq or return_tuple option can be chosen!"
-        
-        if return_tuple: 
+
+        if return_tuple:
             assert return_concat == False, "Return_concat must be False when return_tuple option set to true!"
-        
+
         self.return_concat = return_concat
         self.return_seq = return_seq
         self.return_tuple = return_tuple
@@ -194,7 +194,7 @@ class rule_based_scorer(object):
             self.rem_subseq += 1
         self.replace_missing_tonic()
         return self.results_dict
-    
+
     def replace_missing_tonic(self):
         """Tonic scores can be missing if the first (or more) entries had no
         baseline non-REM sleep data. Replace_missing_tonic checks if any values
@@ -211,41 +211,41 @@ class rule_based_scorer(object):
                                     f_s = self.f_s, fields = self.fields)
                         self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.findT_over_threshold(data = data['signals']['Chin'].ravel())
                         break
-                    
+
     def set_times(self, data: dict) -> None:
-        """Sets the rem_start_time, rem_end_time, nrem_start_time, and 
+        """Sets the rem_start_time, rem_end_time, nrem_start_time, and
         nrem_end_time instance attributes.
-        
+
         NOTE: There may be a gap between nrem_end_time and rem_start_time. This
         may occur if the patient woke up for 1 or more epochs. For the purposes
-        of indexing into the signal, nrem_end_time - nrem_start_time should be 
-        used as the beginning of the REM period, whereas rem_start_time should 
-        be used to convert the index of identified phasic and tonic events 
+        of indexing into the signal, nrem_end_time - nrem_start_time should be
+        used as the beginning of the REM period, whereas rem_start_time should
+        be used to convert the index of identified phasic and tonic events
         into units of study time.
-        
+
         Returns None"""
-        
+
         assert 0 < len(data['staging']) < 3, f"Staging array length must be between 1 and 2, not {len(data['staging'])}!"
-        
+
         for tup in data['staging']:
             assert tup[0] < tup[1], f"Start time in tuple {tup} not less than end time!"
-        
+
         rem_time = [key for key in data['staging'] if key[2] == 'R'][0]
-        self.rem_start_time, self.rem_end_time = rem_time[0], rem_time[1] 
-        
+        self.rem_start_time, self.rem_end_time = rem_time[0], rem_time[1]
+
         try:
             nrem_time = [key for key in data['staging'] if key[2] == 'N'][0]
-            self.nrem_start_time, self.nrem_end_time = nrem_time[0], nrem_time[1] 
+            self.nrem_start_time, self.nrem_end_time = nrem_time[0], nrem_time[1]
         except:
             self.nrem_start_time = self.nrem_end_time = None
-        
+
         # Make list of apnea and hypoapnea indices
         self.make_a_and_h_list(data)
-        
-    
+
+
     def make_a_and_h_list(self, data: dict) -> None:
-        """Also creates a list of tuples as an instance variable called 
-        a_and_h_idx, which is a list of apnea and hypoapneas occuring during 
+        """Also creates a list of tuples as an instance variable called
+        a_and_h_idx, which is a list of apnea and hypoapneas occuring during
         REM sleep in the format (start index, end index). Returns None."""
         # Create list of tuples of apnea and hypoapnea start and end times
         self.a_and_h_idx = []
@@ -262,7 +262,7 @@ class rule_based_scorer(object):
                         end = self.rem_end_time
                     else:
                         end = event[1] + self.ignore_hypoxics_duration
-                    self.a_and_h_idx.append((convert_to_rem_idx(time = start, 
+                    self.a_and_h_idx.append((convert_to_rem_idx(time = start,
                                                                 rem_start_time = self.rem_start_time,
                                                                 rem_end_time = self.rem_end_time,
                                                                 f_s = self.f_s),
@@ -270,17 +270,17 @@ class rule_based_scorer(object):
                                                                 rem_start_time = self.rem_start_time,
                                                                 rem_end_time = self.rem_end_time,
                                                                 f_s = self.f_s)))
-    
+
 
     def make_dicts(self):
         """ Scans through the data_path directory and finds all REM subsequence
-        files associated with the given ID. Builds the results dictionary using 
+        files associated with the given ID. Builds the results dictionary using
         the format:
-            {'RSWA_P': {'REM_0': {} .. 'REM_1': {}}, 
+            {'RSWA_P': {'REM_0': {} .. 'REM_1': {}},
             'RSWA_T': {'REM_0': {} .. 'REM_1': {}}}
-        
+
         Also builds a baseline dictionary at the same time with the format:
-            {'RSWA_P': {'REM_0': {} .. 'REM_1': {}}, 
+            {'RSWA_P': {'REM_0': {} .. 'REM_1': {}},
             'RSWA_T': {'REM_0': {} .. 'REM_1': {}}}
         """
         self.results_dict = {'RSWA_P': {}, 'RSWA_T': {}}
@@ -294,45 +294,45 @@ class rule_based_scorer(object):
                 for channel in self.channels:
                     self.baseline_dict['RSWA_P'][f'REM_{num}'][channel] = {}
                 self.baseline_dict['RSWA_T'][f'REM_{num}'] = {}
-            
-    def set_rem_baseline(self, data: np.ndarray, channel: str, 
+
+    def set_rem_baseline(self, data: np.ndarray, channel: str,
                          index: int) -> None:
         """ Calculates the baseline REM sleep period given the array of EMG values
         and the index.
-        
+
         Case 1: The first REM subsequence is being analyzed, and the index
         corresponds to a time of less than the value of the p_baseline_length
         parameter. The first p_baseline_length seconds of the array are
         used as baseline.
-        
+
         Case 2: A REM subsequence other than the first is being analyzed, and the
         index to a time of less than the value of the p_baseline_length
         parameter. The baseline consists of the last f_s * p_baseline_length -
         index samples from the previous REM subsequence baseline plus the first
         index samples from the current REM subsequence.
-        
-        Case 3: The index corresponds to a time of less than the value of the 
+
+        Case 3: The index corresponds to a time of less than the value of the
         p_baseline_length parameter. The baseline consists of the last p_baseline_length
         worth of samples (i.e. p_baseline_length seconds, or f_s * p_baseline_length
         samples).
-        
+
         Events are filtered out of the baseline by the function delete_events_from_baseline,
         so the length of the baseline will only correspond to p_baseline_length
         seconds when no phasic events have been detected in the last p_baseline_length
         seconds.
-        
+
         Returns None
         """
-        
+
         assert index < len(data), "Index must be less than the length of the data array!"
-        
+
         if (index - (self.f_s * self.p_baseline_length)) <= 0:
             limit_lo = 0
             if self.rem_subseq == 0:
                 baseline = self.delete_events_from_baseline(data=data[0:self.f_s * self.p_baseline_length],
                         channel = channel, limit_lo = limit_lo)
             else:
-                baseline_from_current = self.delete_events_from_baseline(data = data[0:index], 
+                baseline_from_current = self.delete_events_from_baseline(data = data[0:index],
                         channel = channel, limit_lo = limit_lo)
                 baseline_from_last = self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq-1}'][channel][-(self.f_s * self.p_baseline_length - index):]
                 baseline = np.concatenate((baseline_from_last,baseline_from_current))
@@ -341,49 +341,49 @@ class rule_based_scorer(object):
                         channel = channel, limit_lo = index-self.p_baseline_length*self.f_s)
 
         self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq}'][channel] = baseline
-        
-    def delete_events_from_baseline(self, data: np.ndarray, channel: str, 
+
+    def delete_events_from_baseline(self, data: np.ndarray, channel: str,
                                     limit_lo: int) -> np.ndarray:
         """Deletes indices from a data array. The indices are specified by
         the p_event_idx dictionary, which is an instance attribute of
         rule_based_scorer. The limit_lo parameter is the start index of the
         data array with reference to the EMG signal array and the channel
         parameter is the channel that is being analyzed."""
-        
+
         if len(self.p_event_idx[channel]) > 0:
             # Get previous events and convert to an array
             events = np.asarray(list(set(self.p_event_idx[channel][:])), dtype = int)
-        
+
             # Only consider events occuring in baseline
             events = events[events >= limit_lo] - limit_lo
-        
+
             # delete events from baseline
             np.delete(data, events)
-        
+
         return data
-        
-        
+
+
     def findP_over_threshold(self, data: dict):
-        """Transforms EMG signal for each channel into sequences of ones and 
-        zeros, or tuples of (start_time, end_time, 'RSWA_P') depending on 
-        whether EMG signal meets criteria specified by the input arguments 
+        """Transforms EMG signal for each channel into sequences of ones and
+        zeros, or tuples of (start_time, end_time, 'RSWA_P') depending on
+        whether EMG signal meets criteria specified by the input arguments
         p_continuity_threshold and p_amplitude_threshold/p_quantile.
-        
+
         If p_mode is quantile, the signal must exceed the specified p_quantile
         of the baseline REM to exceed the ampltiude threshold. If p_mode is
         amplitude, the signal must exceed the product of the baseline mean
         and p_amplitude_threshold. If p_mode is stdev, the signal must exceed
         the baseline plus the specified number of standard deviations.
-        
+
         INPUT: data, a dictionary of signal values.
-        
+
         OUTPUT: if return_seq, the output is a sequence of 1's and 0's, one for
-        each sample point in the input data array (for each channel). 
+        each sample point in the input data array (for each channel).
         If return_tuple the output
         is a list of tuples of the form (Start_sample, end_sample, event_type)
         """
         assert type(data) == dict, f"Input data type must be a dictionary, not a {type(data)}!"
-        
+
         if self.return_seq:
             if self.nrem_start_time is None:
                 out = np.zeros((len(data['signals']['Chin'].ravel()),len(self.channels)))
@@ -391,7 +391,7 @@ class rule_based_scorer(object):
                 out = np.zeros((len(data['signals']['Chin'][self.nrem_end_time - self.nrem_start_time:].ravel()),len(self.channels)))
         else:
             out = []
-        
+
         # Check if signal in each channel exceeds amplitude criterion
         for i,channel in enumerate(self.channels):
             if self.nrem_start_time is None:
@@ -412,14 +412,14 @@ class rule_based_scorer(object):
             # Remove events under continuity criterion
             idx = np.nonzero(chan_out > 0)
             groups = self.continuity_thresholder(index = idx[0], event_type ='RSWA_P')
-            if self.return_tuple: 
-                out.extend(tuple_builder(groups = groups, 
+            if self.return_tuple:
+                out.extend(tuple_builder(groups = groups,
                                          event_type ='RSWA_P',
                                          f_s = self.f_s,
                                          rem_start_time = self.rem_start_time,
                                          rem_end_time = self.rem_end_time))
             elif self.return_seq:
-                out[:,i] = sequence_builder(groups = groups, 
+                out[:,i] = sequence_builder(groups = groups,
                                            length = len(chan_out))
         if not self.return_concat:
             return out
@@ -427,7 +427,7 @@ class rule_based_scorer(object):
             concat_out = np.zeros(out.shape[0])
             concat_out[np.nonzero(out)[1]] = 1
             return concat_out
-                
+
     def p_amplitude_checker(self, index: int, data: np.ndarray, channel: str) -> int:
         """ Takes the index of the data array, the data array, and the channel
         as inputs. Checks if the value of data at the index exceeds a metric
@@ -443,26 +443,26 @@ class rule_based_scorer(object):
         if self.p_mode == 'mean':
             if data[index] >= np.mean(baseline)*self.p_amplitude_threshold: return 1
         if self.p_mode == 'stdev':
-            if data[index] >= (np.std(baseline)*self.p_amplitude_threshold + np.mean(baseline)): 
+            if data[index] >= (np.std(baseline)*self.p_amplitude_threshold + np.mean(baseline)):
                 return 1
         return 0
-    
+
     def get_nrem_baseline(self, signal) -> None:
-        """ Calculates the minimum in the baseline Non-REM sleep Chin EMG. 
+        """ Calculates the minimum in the baseline Non-REM sleep Chin EMG.
         Assumes baseline is composed of only non-REM sleep. Updates the
-        instance attribute baseline_dict with the minimum of Chin EMG channel 
-        during baseline period. If insufficient baseline length is encountered 
-        for the current REM subsequence, the baseline from the last REM 
+        instance attribute baseline_dict with the minimum of Chin EMG channel
+        during baseline period. If insufficient baseline length is encountered
+        for the current REM subsequence, the baseline from the last REM
         subsequence will also be used.
-        
+
         INPUT:
             baseline: None or tuple in format (start, end, N)
             signal: None or numpy array
-        
+
         OUTPUT:
             None.
         """
-        if signal is not None:            
+        if signal is not None:
             assert type(signal) == np.ndarray, f"Signal must a numpy array if baseline is a tuple, not a {type(signal)}!"
             self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']=np.min(signal.ravel())
 
@@ -472,71 +472,71 @@ class rule_based_scorer(object):
             else:
                 nobaseline = Exception("No baseline available for first REM subsequence!")
                 raise nobaseline
-            
+
     def findT_over_threshold(self, data: dict):
-            
+
         """ Transforms EMG signal into sequence of ones and zeros or tuples
-        of (start_time, end_time, 'RSWA_T') depending on whether EMG signal 
-        meets criteria specified by the input arguments t_continuity_threshold 
+        of (start_time, end_time, 'RSWA_T') depending on whether EMG signal
+        meets criteria specified by the input arguments t_continuity_threshold
         and t_amplitude_threshold.
-        
+
         INPUT: data, a 1-D array, and nrem_min, the minimum signal observed
         in the non-REM baseline period.
-        
+
         OUTPUT: if return_seq, the output is a sequence of 1's and 0's, one for
         each sample point in the input data array. If return_tuple the output
         is a list of tuples of the form (Start_sample, end_sample, event_type)
         """
-        
+
         assert len(data) > 0, "Data is empty!"
-        
+
         assert len(data.shape) == 1, "Data must be a flattend array!"
-        
+
         nrem_min = self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']
-        
+
         assert type(nrem_min) == np.float64, f"Baseline data unavailable! Baseline: {nrem_min}"
-        
+
         # Mask indices during apneas and hypoapneas
         for event in self.a_and_h_idx:
             data[event[0]:event[1]+1] = float("-Inf")
-        
+
         # Calculate indices for values over threshold
         idx = np.nonzero(data > self.t_amplitude_threshold*nrem_min)[0]
-        
+
         groups = self.continuity_thresholder(index = idx, event_type ='RSWA_T')
-        
-        if self.return_tuple: return self.tuple_builder(groups = groups, 
+
+        if self.return_tuple: return self.tuple_builder(groups = groups,
                                         event_type ='RSWA_T')
-        elif self.return_seq: return self.sequence_builder(groups = groups, 
+        elif self.return_seq: return self.sequence_builder(groups = groups,
                                         length = len(data))
-    
+
     def continuity_thresholder(self,index: int, event_type: str) -> list:
         """Takes an array of indices as input. Returns an array in which all
         indices occur in runs of consecutive indices that exceed the continuty
         threshold for a given event type (RSWA_P or RSWA_T)
-        
+
         INPUT: Array of indices, e.g array([1, 2, 3, 89, 90, 100])
-        
+
         OUTPUT: List of arrays of indices filterd based on continuity threshold. For
         example, if continuity threshold were 2, the input array would be
         transformed to [array([1, 2, 3]), array([89,90])]"""
-        
+
         assert event_type in ['RSWA_T', 'RSWA_P'], f"Event type must be RSWA_T or RSWA_P, not {event_type}!"
-        
+
         assert type(index) == np.ndarray, f"Index must be a numpy ndarray, not a {type(index)}!"
-        
+
         if event_type == 'RSWA_T': continuity_threshold = self.t_continuity_threshold
-        
+
         if event_type == 'RSWA_P': continuity_threshold = self.p_continuity_threshold
-        
+
         # get list of consecutive samples above threshold
         groups = [list(group) for group in more_itertools.consecutive_groups(index)]
-        
+
         # apply continuity threshold to groups of samples
         groups = [group for group in groups if len(group) >= continuity_threshold]
-        
+
         return groups
-    
+
     def score_Tonics(self, data: dict) -> dict:
         """Takes in data and returns either a list of tuples of the start
         and end times of tonic events or a binary sequence in which 1 indicates
@@ -552,7 +552,3 @@ class rule_based_scorer(object):
             else:
                 return {}
         return out
-    
-
-
-
