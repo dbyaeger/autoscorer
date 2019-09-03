@@ -9,14 +9,13 @@ Created on Fri Aug  2 09:38:26 2019
 import numpy as np
 import more_itertools
 from pathlib import Path
-from autoscorer_helpers.autoscorer_helpers import (get_data,
-                                                   make_event_idx,
-                                                   convert_to_rem_idx,
-                                                   tuple_builder,
-                                                   sequence_builder)
-#import doctest
+from autoscorer_helpers import (get_data,
+                                      make_event_idx,
+                                      convert_to_rem_idx,
+                                      tuple_builder,
+                                      sequence_builder)
 
-class autoscorer(object):
+class Autoscorer(object):
     """ Returns the times of T events and P events scored according to
     *interpretations* of the AASM guidelines for a given sleep study.
 
@@ -552,3 +551,4 @@ class autoscorer(object):
             else:
                 return {}
         return out
+
