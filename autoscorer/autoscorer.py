@@ -9,7 +9,7 @@ Created on Fri Aug  2 09:38:26 2019
 import numpy as np
 import more_itertools
 from pathlib import Path
-from autoscorer_helpers import (get_data,
+from autoscorer.autoscorer_helpers import (get_data,
                                       make_event_idx,
                                       convert_to_rem_idx,
                                       tuple_builder,
@@ -504,9 +504,9 @@ class Autoscorer(object):
 
         groups = self.continuity_thresholder(index = idx, event_type ='RSWA_T')
 
-        if self.return_tuple: return self.tuple_builder(groups = groups,
+        if self.return_tuple: return tuple_builder(groups = groups,
                                         event_type ='RSWA_T')
-        elif self.return_seq: return self.sequence_builder(groups = groups,
+        elif self.return_seq: return sequence_builder(groups = groups,
                                         length = len(data))
 
     def continuity_thresholder(self,index: int, event_type: str) -> list:

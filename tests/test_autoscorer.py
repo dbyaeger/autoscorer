@@ -3,12 +3,12 @@
 """
 Tests for 'autoscorer' package
 """
-import pytest
+#import pytest
 import numpy as np
-import autoscorer
+from autoscorer import autoscorer
 
 
-def set_scorer_baseline_dict(scorer: autoscorer.Autoscorer, rem_subsequences = 2,
+def set_scorer_baseline_dict(scorer, rem_subsequences = 2,
                              channels = ['Chin', 'L Leg', 'R Leg']) -> None:
     baseline_dict = {'RSWA_P': {}, 'RSWA_T': {}}
     for i in range(rem_subsequences):
@@ -19,7 +19,7 @@ def set_scorer_baseline_dict(scorer: autoscorer.Autoscorer, rem_subsequences = 2
     scorer.baseline_dict = baseline_dict
     
 
-def set_scorer_times(scorer: autoscorer.Autoscorer, nrem_start_time = 4940,
+def set_scorer_times(scorer, nrem_start_time = 4940,
                           nrem_end_time = 5000, rem_start_time = 5000,
                           rem_end_time = 5060) -> None:
     scorer.nrem_start_time = nrem_start_time
@@ -28,7 +28,7 @@ def set_scorer_times(scorer: autoscorer.Autoscorer, nrem_start_time = 4940,
     scorer.rem_end_time = rem_end_time
     scorer.baseline_dict = {'RSWA_P': {'REM_0': {}, 'REM_1':{}}, 'RSWA_T': {}}
 
-def set_scorer_a_and_h(scorer: autoscorer.Autoscorer, a_and_h_overlap: float = 0, 
+def set_scorer_a_and_h(scorer, a_and_h_overlap: float = 0, 
                 REM_length: int = 60, f_s: int = 100) -> None:
     assert 0 <= a_and_h_overlap <= 1, f"a_and_h_overlap must be between 0 and 1, not {a_and_h_overlap}!"
     scorer.a_and_h_idx = [(0, f_s*REM_length*a_and_h_overlap)]

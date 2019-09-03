@@ -2,9 +2,8 @@ README.md
 setup.py
 autoscorer/__init__.py
 autoscorer/autoscorer.py
+autoscorer/autoscorer_helpers.py
 autoscorer.egg-info/PKG-INFO
 autoscorer.egg-info/SOURCES.txt
 autoscorer.egg-info/dependency_links.txt
 autoscorer.egg-info/top_level.txt
-autoscorer_helpers/__init__.py
-autoscorer_helpers/autoscorer_helpers.py
