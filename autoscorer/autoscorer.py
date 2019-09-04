@@ -13,11 +13,13 @@ from autoscorer.autoscorer_helpers import (get_data,
                                       make_event_idx,
                                       convert_to_rem_idx,
                                       tuple_builder,
-                                      sequence_builder)
+                                      sequence_builder,
+                                      round_time)
 
 class Autoscorer(object):
     """ Returns the times of T events and P events scored according to
-    *interpretations* of the AASM guidelines for a given sleep study.
+    *interpretations* of the AASM guidelines for a given sleep study. Also
+    returns the human-annotated phasic and tonic event times.
 
     INPUT: Sleeper ID (ID) and path to data files (data_path). Assumes
     data files are pickled dictionaries of the format:
@@ -117,19 +119,26 @@ class Autoscorer(object):
 
             Event_start_time and Event_end_times are in units of study time.
             One, and only one, of return_seq and return_tuple must be set to True.
+        
+        phasic_start_time_only: If set to true, only the start time of a phasic
+            event will be returned. For instance, if return_tuples is set to true,
+            events will be returned in the format:
+                
+                (event_start_time, event_start_time, event_type)
 
         verbose: If set to True, ID and REM subsequence number will be printed
             out during scoring.
 
     """
 
-    def __init__(self, ID= 'XAXVDJYND6ZBY93', data_path = '/Users/danielyaeger/Documents/processed_data/Rectified_and_Resampled',
-                 f_s = 100, t_amplitude_threshold = 0.05,
-                 t_continuity_threshold = 100, p_mode = 'mean',
+    def __init__(self, ID= 'XAXVDJYND8J1DVQ', data_path = '/Users/danielyaeger/Documents/processed_data/processed',
+                 f_s = 100, t_amplitude_threshold = 1,
+                 t_continuity_threshold = 1000, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
                  p_continuity_threshold = 10, p_baseline_length = 120,
                  ignore_hypoxics_duration = 15, return_seq = False,
-                 return_concat = False, return_tuple = True, verbose = True):
+                 return_concat = False, return_tuple = True, 
+                 phasic_start_time_only = True, verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -170,6 +179,7 @@ class Autoscorer(object):
         self.return_seq = return_seq
         self.return_tuple = return_tuple
         self.verbose = verbose
+        self.phasic_start_time_only = phasic_start_time_only
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
         self.make_dicts()
@@ -177,7 +187,8 @@ class Autoscorer(object):
 
     def score_REM(self):
         """ For each REM subsequence in directory, scores tonic and phasic events.
-        Stores scoring in results_dict
+        Stores scoring in results_dict. Also creates a dictionary of human-annotated
+        P and T events. Returns dictionary of results.
         """
         self.rem_subseq = 0
         while self.data_path.joinpath(f"{self.ID}_{self.rem_subseq}.p").exists():
@@ -188,28 +199,20 @@ class Autoscorer(object):
                                     f_s = self.f_s, fields = self.fields)
             self.set_times(data)
             self.p_event_idx = make_event_idx(data = data, channels = self.channels)
+            self.add_human_annotations(data)
             self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.score_Tonics(data)
-            self.results_dict['RSWA_P'][f'REM_{self.rem_subseq}'] = self.findP_over_threshold(data)
+            if self.verbose:
+                print("\tFinished analyzing tonic events...")
+            #self.results_dict['RSWA_P'][f'REM_{self.rem_subseq}'] = self.findP_over_threshold(data)
+            if self.verbose:
+                print("\tFinished analyzing phasic events...")
             self.rem_subseq += 1
-        self.replace_missing_tonic()
         return self.results_dict
-
-    def replace_missing_tonic(self):
-        """Tonic scores can be missing if the first (or more) entries had no
-        baseline non-REM sleep data. Replace_missing_tonic checks if any values
-        are missing and calculates the missing tonic scores. Returns None"""
-        sub_seqs = sorted(self.results_dict['RSWA_T'].keys())
-        for sub_seq in sub_seqs:
-            if len(self.results_dict['RSWA_T'][sub_seq]) == 0:
-                for candidate_seq in sub_seqs:
-                    if type(self.baseline_dict['RSWA_T'][candidate_seq]) == np.float64:
-                        self.baseline_dict['RSWA_T'][sub_seq] = self.baseline_dict['RSWA_T'][candidate_seq]
-                        self.rem_subseq = int(sub_seq.split("_")[1])
-                        data = get_data(filename = f"{self.ID}_{self.rem_subseq}.p",
-                                    data_path = self.data_path, channels = self.channels,
-                                    f_s = self.f_s, fields = self.fields)
-                        self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.findT_over_threshold(data = data['signals']['Chin'].ravel())
-                        break
+    
+    def get_annotations(self):
+        """ Returns dictionary of human annotations of tonic and phasic signal-
+        level events"""
+        return self.annotation_dict
 
     def set_times(self, data: dict) -> None:
         """Sets the rem_start_time, rem_end_time, nrem_start_time, and
@@ -279,11 +282,19 @@ class Autoscorer(object):
             'RSWA_T': {'REM_0': {} .. 'REM_1': {}}}
 
         Also builds a baseline dictionary at the same time with the format:
+            {'RSWA_P': {'REM_0': {'Chin': {}, 'L Leg': {}, 'R Leg': {}}},
+            .. 'REM_1': {'Chin': {}, 'L Leg': {}, 'R Leg': {}}, ... ,
+            'RSWA_T': {'REM_0': {} .. 'REM_1': {}}}
+        
+        Also builds a dictionary of the human-annotated RSWA events with the
+        format:
             {'RSWA_P': {'REM_0': {} .. 'REM_1': {}},
             'RSWA_T': {'REM_0': {} .. 'REM_1': {}}}
+            
         """
         self.results_dict = {'RSWA_P': {}, 'RSWA_T': {}}
         self.baseline_dict = {'RSWA_P': {}, 'RSWA_T': {}}
+        self.annotation_dict = {'RSWA_P': {}, 'RSWA_T': {}}
         for file in list(self.data_path.glob('**/*.p')):
             if self.ID in file.stem:
                 num = file.stem.split('_')[1]
@@ -293,6 +304,55 @@ class Autoscorer(object):
                 for channel in self.channels:
                     self.baseline_dict['RSWA_P'][f'REM_{num}'][channel] = {}
                 self.baseline_dict['RSWA_T'][f'REM_{num}'] = {}
+                self.annotation_dict['RSWA_P'][f'REM_{num}'] = []
+                self.annotation_dict['RSWA_T'][f'REM_{num}'] = []
+                
+    def add_human_annotations(self, data: dict):
+        """ Adds human annotations to the instanc attribute annotation_dict. Both
+        P and T event annotations are added for each REM subsequence. If the
+        return_tuples option is chosen, then tuples will be returned. If return_seq
+        option is chosen, then sequences will be returned.
+        """
+        if self.return_tuple:
+            for event in data['rswa_events']:
+                if event[-1] == 'P': 
+                    self.annotation_dict['RSWA_P'][f"REM_{self.rem_subseq}"].append(round_time(times = event,
+                                                                                    f_s = self.f_s,
+                                                                                    phasic_start_time_only = self.phasic_start_time_only))
+                elif event[-1] == 'T':
+                    self.annotation_dict['RSWA_T'][f"REM_{self.rem_subseq}"].append(round_time(times = event,
+                                                                                    f_s = self.f_s,
+                                                                                    phasic_start_time_only = self.phasic_start_time_only))
+        
+        elif self.return_seq:
+            p_idx, t_idx = [], []
+            for event in data['rswa_events']:
+                if event[-1] == 'P':
+                    # Convert event times into indexes relative to start of REM
+                    p_idx.append(list(np.arange(start = convert_to_rem_idx(time = event[0], 
+                                                                           rem_start_time = self.rem_start_time, 
+                                                                           rem_end_time = self.rem_end_time,
+                                                                           f_s = self.f_s),
+                                                stop = convert_to_rem_idx(time = event[1], 
+                                                                           rem_start_time = self.rem_start_time, 
+                                                                           rem_end_time = self.rem_end_time,
+                                                                           f_s = self.f_s) + 1)))
+                elif event[-1] == 'T':
+                    t_idx.append(list(np.arange(start = convert_to_rem_idx(time = event[0], 
+                                                                           rem_start_time = self.rem_start_time, 
+                                                                           rem_end_time = self.rem_end_time,
+                                                                           f_s = self.f_s),
+                                                stop = convert_to_rem_idx(time = event[1], 
+                                                                           rem_start_time = self.rem_start_time, 
+                                                                           rem_end_time = self.rem_end_time,
+                                                                           f_s = self.f_s) + 1)))
+            rem_length_in_idx = int((self.rem_end_time - self.rem_start_time) * self.f_s)
+            self.annotation_dict['RSWA_P'][f"REM_{self.rem_subseq}"] = sequence_builder(groups = p_idx, 
+                                                                        length = rem_length_in_idx,
+                                                                        phasic_start_time_only = self.phasic_start_time_only)
+            self.annotation_dict['RSWA_T'][f"REM_{self.rem_subseq}"] = sequence_builder(groups = t_idx, 
+                                                                        length = rem_length_in_idx,
+                                                                        phasic_start_time_only = False)
 
     def set_rem_baseline(self, data: np.ndarray, channel: str,
                          index: int) -> None:
@@ -416,10 +476,12 @@ class Autoscorer(object):
                                          event_type ='RSWA_P',
                                          f_s = self.f_s,
                                          rem_start_time = self.rem_start_time,
-                                         rem_end_time = self.rem_end_time))
+                                         rem_end_time = self.rem_end_time,
+                                         phasic_start_time_only = self.phasic_start_time_only))
             elif self.return_seq:
                 out[:,i] = sequence_builder(groups = groups,
-                                           length = len(chan_out))
+                                           length = len(chan_out),
+                                           phasic_start_time_only = self.phasic_start_time_only)
         if not self.return_concat:
             return out
         else:
@@ -505,9 +567,15 @@ class Autoscorer(object):
         groups = self.continuity_thresholder(index = idx, event_type ='RSWA_T')
 
         if self.return_tuple: return tuple_builder(groups = groups,
-                                        event_type ='RSWA_T')
+                                        event_type ='RSWA_T',
+                                        f_s = self.f_s,
+                                        rem_start_time = self.rem_start_time,
+                                        rem_end_time = self.rem_end_time,
+                                        phasic_start_time_only = False)
+        
         elif self.return_seq: return sequence_builder(groups = groups,
-                                        length = len(data))
+                                        length = len(data),
+                                        phasic_start_time_only = False)
 
     def continuity_thresholder(self,index: int, event_type: str) -> list:
         """Takes an array of indices as input. Returns an array in which all
@@ -545,10 +613,7 @@ class Autoscorer(object):
             self.get_nrem_baseline(data['signals']['Chin'][0:self.nrem_end_time - self.nrem_start_time])
             out = self.findT_over_threshold(data = data['signals']['Chin'][self.nrem_end_time - self.nrem_start_time:].ravel())
         else:
-            if self.rem_subseq > 0:
-                self.get_nrem_baseline(None)
-                out = self.findT_over_threshold(data = data['signals']['Chin'].ravel())
-            else:
-                return {}
+            self.get_nrem_baseline(None)
+            out = self.findT_over_threshold(data = data['signals']['Chin'].ravel())
         return out
 

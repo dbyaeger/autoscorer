@@ -54,7 +54,7 @@ def make_event_idx(data: dict, channels: list) -> dict:
     """Makes the p_event_idx, which stores phasic events that exceed the
     continuity threshold as these events occur during processing."""
     p_event_idx = {}
-    for channel in self.channels:
+    for channel in channels:
         p_event_idx[channel] = []
     return p_event_idx
 
@@ -74,23 +74,31 @@ def convert_to_rem_idx(time: float, rem_start_time: int, rem_end_time: int,
 
     return int(seconds_idx +  frac_idx)
 
-def tuple_builder(groups: list, event_type: str, f_s: int, rem_start_time: int, rem_end_time: int) -> list:
+def tuple_builder(groups: list, event_type: str, f_s: int, rem_start_time: int, rem_end_time: int,
+                  phasic_start_time_only: bool = False) -> list:
     """Builds tuples of (event_start, event_end, event_type) given a list
     of arrays of indices.  Returns a list of tuples.
 
     INPUT: groups, a list of arrays of indices in consecutive order, and
-    the type of event ('RSWA_T' or 'RSWA_P')
-
+    the type of event ('RSWA_T' or 'RSWA_P'), and phasic_start_time_only,
+    a boolean which, if True, causes RSWA_P events to have an end time
+    equal to their start time
+    
     OUTPUT: list of arrays of event_start, event_end, event_type)
     """
     assert event_type in ['RSWA_T', 'RSWA_P'], f"Event type must be RSWA_T or RSWA_P, not {event_type}!"
 
     long_tuples = [(g[0],g[-1],event_type) for g in groups if len(g) > 1]
     short_tuples = [(g[0],g[-1],event_type) for g in groups if len(g) == 1]
-    return convert_to_study_time(tuples = long_tuples + short_tuples,
+    out = convert_to_study_time(tuples = long_tuples + short_tuples,
                                  f_s = f_s,
                                  rem_start_time = rem_start_time,
                                  rem_end_time = rem_end_time)
+    
+    if event_type == 'RSWA_P' and phasic_start_time_only:
+        out = [(t[0], t[0], t[-1]) for t in out]
+        
+    return out
 
 def convert_to_study_time(tuples: list, f_s: int, rem_start_time: int, rem_end_time: int) -> list:
     """ Takes in the start time of the REM subsequence and tuples in the
@@ -109,18 +117,46 @@ def convert_to_study_time(tuples: list, f_s: int, rem_start_time: int, rem_end_t
 
     return times
 
-def sequence_builder(groups: list, length: int) -> np.ndarray:
+def sequence_builder(groups: list, length: int, 
+                     phasic_start_time_only: bool = False) -> np.ndarray:
     """Builds sequences of 0 and 1's given a list of indices in consecutive
     order. Returns a numpy array.
 
-    INPUT: groups, a list of arrays of indices in consecutive order and
-    the length of the array to be returned.
+    INPUT: groups, a list of arrays of indices in consecutive order,
+    the length of the array to be returned, and phasic_start_time_only, a boolean,
+    which, if set to True, causes only the first index in a group of consecutive
+    indices to be set to one. This parameter should only be used with phasic
+    events.
 
     OUTPUT: 1-D numpy array where index entries are ones and all other values
     are zero.
     """
+    assert length >= np.max([np.max(l) for l in groups]), "Length must be at least as big as maximum index!"
+    
     out = np.zeros(length)
     if len(groups) > 0:
-        idx = np.concatenate(groups)
+        if not phasic_start_time_only:
+            idx = np.concatenate(groups)
+        elif phasic_start_time_only:
+            idx = [l[0] for l in groups]
         out[idx] = 1
     return out
+
+def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> tuple:
+    """ Rounds times in a tuple of the format
+    
+    (start time, end time, type)
+    
+    to nearest time increment based on f_s (sampling rate in Hz). For example,
+    if start time is 3.34 and f_s is 10, then 3.3 will be returned.
+    
+    INPUT: tuple with first two values as floats, and f_s, sampling rate as an 
+    integer
+    
+    OUTPUT: tuple with times rounded down to nearest increment of time according
+    to f_s"""
+    times = list(times)
+    for i in range(2):
+        times[i] = np.round(times[i], int(np.log10(f_s)))
+    if phasic_start_time_only: times[1] = times[0]
+    return tuple(times)
