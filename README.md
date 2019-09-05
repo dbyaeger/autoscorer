@@ -3,6 +3,8 @@ autoscorer is a module for automated scoring of EMG from sleep studies according
 
 ## Getting Started
 
+Open up a terminal window and type:
+
 `git clone https://github.com/dbyaeger/autoscorer.git`
 
 ## Usage
@@ -99,19 +101,17 @@ Scores can either be outputted as tuples in the format:
 
 Or as sequences:
 
-```python
-000000000111111100000000000011100000000000
-```
+`000000000111111100000000000011100000000000...`
 
 * Each `0` or `1` corresponds to one sample of the signal. A `1` indicates that an RSWA event was detected.
 
 ### Parameters
 
-        `f_s`: Sampling rate in Hz. The signal data is assumed to have the dimensions
+        f_s: Sampling rate in Hz. The signal data is assumed to have the dimensions
             seconds by sampling rate. An assertion error will be raised if f_s
             is set incorrectly.
 
-        `t_amplitude_threshold`: the multiple of the non_REM minimum that the
+        t_amplitude_threshold: the multiple of the non_REM minimum that the
             elements in data must exceed in order to be given a value of one.
             This value should be greater than zero.
 
