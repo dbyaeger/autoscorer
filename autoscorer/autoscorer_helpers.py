@@ -155,7 +155,7 @@ def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> t
     integer
     
     PARAMETER: phasic_start_time_only: if set to True, then the end time in
-    the tuple will be set equal to the end time.
+    the tuple will be set equal to the start time.
     
     OUTPUT: tuple with times rounded down to nearest increment of time according
     to f_s"""

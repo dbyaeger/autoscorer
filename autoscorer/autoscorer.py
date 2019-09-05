@@ -27,9 +27,10 @@ class Autoscorer(object):
 
         {
             "ID":ID (str),
-            "start_time":start_time_in_seconds (float),
-            "end_time":end_time_in_seconds (float),
-            "events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str),
+            "study_start_time": study start time in datatime format
+            "staging": [(start_time_sleep_stage_i, end_time_sleep_stage_i, sleep_stage_type_i), ...] (float, float, str)
+            "apnia_hypopnia_events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str)
+            "rswa_events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str)
             "signals":{"channel_i":array(n_seconds, sampling_rate)}
         }
 

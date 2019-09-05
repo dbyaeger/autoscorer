@@ -83,7 +83,7 @@ def confusionMatrix(predictions: dict, annotations: dict, combine_t_and_p: True)
                      'phasic_FP': fFPs, 'phasic_TN': fTNs, 'phasic_FN': fFNs}
     return pd.DataFrame(data = data_dict)
 
-def scoreAll(data_path = '/Users/danielyaeger/Documents/processed_data/Rectified_and_Resampled',
+def score_All(data_path = '/Users/danielyaeger/Documents/processed_data/Rectified_and_Resampled',
                  f_s = 10, t_amplitude_threshold = 1,
                  t_continuity_threshold = 10, p_mode = 'mean', 
                  p_amplitude_threshold = 4, p_quantile = 0.99,
@@ -147,7 +147,7 @@ def scoreAll(data_path = '/Users/danielyaeger/Documents/processed_data/Rectified
 
 if __name__ == "__main__":
      data_path = '/Users/danielyaeger/Documents/processed_data/processed'
-     results_dict, annotations_dict = scoreAll(data_path = data_path)
+     results_dict, annotations_dict = score_All(data_path = data_path)
      df = confusionMatrix(predictions = results_dict['results'], annotations = annotations_dict, combine_t_and_p = False)
      df2, df3 = collapse_confusion_matrix(conf_matrix = df, separate_events = True)
      df2.to_csv('tonic_conf_matrix.csv', index = None, header = True)
