@@ -77,8 +77,23 @@ The input data files are pickled Python dictionaries with the following key-valu
 "signals":{"channel_i":array(n_seconds, sampling_rate)}
 ```
 
-`staging` contains the end and start times of sleep stages, which are defined as `R` or REM and 
+* `staging` contains the end and start times of sleep stages, which are defined as `R` or REM and 
 `N` for non-REM. 
-`apnia_hypopnia_events` contains apnea events, denoted by `A` and hypoapnea events, denoted by `H`
-`rswa_events` contains phasic RSWA events, denoted by `P`, and tonic RSWA events, indicated by `T`
-`signals` can contain any collection of signals but must include `Chin`, `L Leg`, and `R Leg` channels
+* `apnia_hypopnia_events` contains apnea events, denoted by `A` and hypoapnea events, denoted by `H`
+* `rswa_events` contains phasic RSWA events, denoted by `P`, and tonic RSWA events, indicated by `T`
+* `signals` can contain any collection of signals but must include `Chin`, `L Leg`, and `R Leg` channels
+
+### Output
+
+Dictionary of scored REM subsequences in the format:
+```python
+        {'RSWA_P': {'REM_0': {scores}, .., 'REM_n': {scores}},
+        'RSWA_T': {'REM_0': {scores}, .., 'REM_n': {scores}}}
+```
+
+Scores can either be outputted as tuples in the format:
+```python
+(event_start, event_end, event_type)
+```
+* event_start` and `event_end` are in units of seconds relative to the start of the sleep study.  
+* `event_type` is `RSWA_T` for tonic events and `RSWA_P` for phasic events.
