@@ -41,8 +41,8 @@ Processing ID: XVZ2FFAEC864IPK REM subsequence: 3
 To analyze all of the patient files in a directory:
 
 ```python
->>> from autoscorer.Score_All
->>> scoring_results, human_annotations = scoreAll(data_path = './processed_data/processed')
+>>> from autoscorer.score_all
+>>> scoring_results, human_annotations = score_all(data_path = './processed_data/processed')
 
 Processing ID: XVZ2FYAQH80F05L REM subsequence: 0
         Finished analyzing tonic events...
@@ -106,6 +106,9 @@ Or as sequences:
 * Each `0` or `1` corresponds to one sample of the signal. A `1` indicates that an RSWA event was detected.
 
 ### Parameters
+
+These parameters can be passed as named parameters to the `Autoscorer` instance upon instantiation, or to
+the `score_all` method as named parameters.
 
         f_s: Sampling rate in Hz. The signal data is assumed to have the dimensions
             seconds by sampling rate. An assertion error will be raised if f_s
