@@ -65,7 +65,7 @@ Input data files are expected to named in the format
 
 `patientID_i.p`
 
-where each i corresponds to the index of a REM subsequence, defined as 1 or more consecutive epochs of REM sleep
+where each `i` corresponds to the index of a REM subsequence, defined as 1 or more consecutive epochs of REM sleep
 
 The input data files are pickled Python dictionaries with the following key-value pairs:
 
