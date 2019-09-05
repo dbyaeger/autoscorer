@@ -64,7 +64,7 @@ def convert_to_rem_idx(time: float, rem_start_time: int, rem_end_time: int,
     to the start of the signal only containing REM.
     """
 
-    assert rem_start_time <= time <= rem_end_time, f"Time {time} is not between REM start and end times!"
+    assert rem_start_time <= time <= rem_end_time, f"Time {time} is not between REM start at {rem_start_time} and REM end at {rem_end_time}!"
 
     time -= rem_start_time
 
@@ -72,7 +72,7 @@ def convert_to_rem_idx(time: float, rem_start_time: int, rem_end_time: int,
 
     frac_idx = np.floor((time % 1)*f_s)
 
-    return int(seconds_idx +  frac_idx)
+    return min(int(seconds_idx +  frac_idx), (rem_end_time - rem_start_time)*f_s - 1)
 
 def tuple_builder(groups: list, event_type: str, f_s: int, rem_start_time: int, rem_end_time: int,
                   phasic_start_time_only: bool = False) -> list:
@@ -131,7 +131,8 @@ def sequence_builder(groups: list, length: int,
     OUTPUT: 1-D numpy array where index entries are ones and all other values
     are zero.
     """
-    assert length >= np.max([np.max(l) for l in groups]), "Length must be at least as big as maximum index!"
+    if len(groups) > 0:
+        assert (length - 1) >= np.max([np.max(l) for l in groups]), f"Length must be at least as big as maximum index! Length: {length} and max idx: {np.max([np.max(l) for l in groups])}"
     
     out = np.zeros(length)
     if len(groups) > 0:
@@ -153,6 +154,9 @@ def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> t
     INPUT: tuple with first two values as floats, and f_s, sampling rate as an 
     integer
     
+    PARAMETER: phasic_start_time_only: if set to True, then the end time in
+    the tuple will be set equal to the end time.
+    
     OUTPUT: tuple with times rounded down to nearest increment of time according
     to f_s"""
     times = list(times)
@@ -160,3 +164,19 @@ def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> t
         times[i] = np.round(times[i], int(np.log10(f_s)))
     if phasic_start_time_only: times[1] = times[0]
     return tuple(times)
+
+def adjust_rswa_event_times(time_list: list, rem_end_time: int) -> list:
+    """ Adjusts the end time of RSWA events to be no greater than the
+    REM start time. This is required because some annotated events end after
+    the REM end time.
+    
+        new end time = min(event end time, REM end time)
+    
+    INPUT: list of tuples in the format 
+        (event start time, event end time, event type)
+    
+    OUTPUT: list of tuples
+    """
+    return [(t[0], min(t[1], rem_end_time), t[2]) for t in time_list]
+    
+    

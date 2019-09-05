@@ -14,7 +14,8 @@ from autoscorer.autoscorer_helpers import (get_data,
                                       convert_to_rem_idx,
                                       tuple_builder,
                                       sequence_builder,
-                                      round_time)
+                                      round_time,
+                                      adjust_rswa_event_times)
 
 class Autoscorer(object):
     """ Returns the times of T events and P events scored according to
@@ -131,13 +132,13 @@ class Autoscorer(object):
 
     """
 
-    def __init__(self, ID= 'XAXVDJYND8J1DVQ', data_path = '/Users/danielyaeger/Documents/processed_data/processed',
-                 f_s = 100, t_amplitude_threshold = 1,
+    def __init__(self, ID= 'XVZ2FFAEC864IPK', data_path = '/Users/danielyaeger/Documents/processed_data/processed',
+                 f_s = 10, t_amplitude_threshold = 1,
                  t_continuity_threshold = 1000, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
                  p_continuity_threshold = 10, p_baseline_length = 120,
-                 ignore_hypoxics_duration = 15, return_seq = False,
-                 return_concat = False, return_tuple = True, 
+                 ignore_hypoxics_duration = 15, return_seq = True,
+                 return_concat = False, return_tuple = False, 
                  phasic_start_time_only = True, verbose = True):
         self.ID = ID
         if type(data_path) == str:
@@ -203,7 +204,7 @@ class Autoscorer(object):
             self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.score_Tonics(data)
             if self.verbose:
                 print("\tFinished analyzing tonic events...")
-            #self.results_dict['RSWA_P'][f'REM_{self.rem_subseq}'] = self.findP_over_threshold(data)
+            self.results_dict['RSWA_P'][f'REM_{self.rem_subseq}'] = self.findP_over_threshold(data)
             if self.verbose:
                 print("\tFinished analyzing phasic events...")
             self.rem_subseq += 1
@@ -313,8 +314,11 @@ class Autoscorer(object):
         return_tuples option is chosen, then tuples will be returned. If return_seq
         option is chosen, then sequences will be returned.
         """
+        # Sometimes annotated event end time after REM end time and need to correct
+        event_times = adjust_rswa_event_times(time_list = data['rswa_events'],
+                                              rem_end_time = self.rem_end_time)
         if self.return_tuple:
-            for event in data['rswa_events']:
+            for event in event_times:
                 if event[-1] == 'P': 
                     self.annotation_dict['RSWA_P'][f"REM_{self.rem_subseq}"].append(round_time(times = event,
                                                                                     f_s = self.f_s,
@@ -326,7 +330,7 @@ class Autoscorer(object):
         
         elif self.return_seq:
             p_idx, t_idx = [], []
-            for event in data['rswa_events']:
+            for event in event_times:
                 if event[-1] == 'P':
                     # Convert event times into indexes relative to start of REM
                     p_idx.append(list(np.arange(start = convert_to_rem_idx(time = event[0], 
@@ -345,7 +349,7 @@ class Autoscorer(object):
                                                 stop = convert_to_rem_idx(time = event[1], 
                                                                            rem_start_time = self.rem_start_time, 
                                                                            rem_end_time = self.rem_end_time,
-                                                                           f_s = self.f_s) + 1)))
+                                                                           f_s = self.f_s))))
             rem_length_in_idx = int((self.rem_end_time - self.rem_start_time) * self.f_s)
             self.annotation_dict['RSWA_P'][f"REM_{self.rem_subseq}"] = sequence_builder(groups = p_idx, 
                                                                         length = rem_length_in_idx,
@@ -616,4 +620,8 @@ class Autoscorer(object):
             self.get_nrem_baseline(None)
             out = self.findT_over_threshold(data = data['signals']['Chin'].ravel())
         return out
+
+if __name__ == "__main__":
+    scorer = Autoscorer()
+    results = scorer.score_REM()
 
