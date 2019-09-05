@@ -72,12 +72,13 @@ The input data files are pickled Python dictionaries with the following key-valu
 "ID":ID (str),
 "study_start_time": study start time in datatime format
 "staging": [(start_time_event_i, end_time_event_i, sevent_type_i), ...] (float, float, str)
-"apnia_hypopnia_events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str)
+"apnia_hypopnia_events":[(start_time_event_i, end_time_event_i, event_type_i), ] (float, float, str)
 "rswa_events":[(start_time_event_i, end_time_event_i, event_type_i), ...] (float, float, str)
 "signals":{"channel_i":array(n_seconds, sampling_rate)}
 ```
 
-`staging` contains the end and start times of sleep stages, which are defined as `R` or REM and `N` for non-REM
+`staging` contains the end and start times of sleep stages, which are defined as `R` or REM and 
+`N` for non-REM. 
 `apnia_hypopnia_events` contains apnea events, denoted by `A` and hypoapnea events, denoted by `H`
 `rswa_events` contains phasic RSWA events, denoted by `P`, and tonic RSWA events, indicated by `T`
 `signals` can contain any collection of signals but must include `Chin`, `L Leg`, and `R Leg` channels
