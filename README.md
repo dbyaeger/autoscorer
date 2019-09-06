@@ -9,8 +9,13 @@ REM sleep:
 * `tonic`: signals of at least one second in duration that are greater than the minimum amplitude 
 during non-REM sleep.
 
-* `phasic`: signals of at least 0.1s duration that are greater than four times the REM sleep
+* `phasic`: signals of at least 0.1 second in duration that are greater than four times the REM sleep
 background EMG activity.
+
+**Note**: The definition of `tonic` and `phasic` events here is different than the criteria used in
+the American Academy of Sleep Medicine manual to diagnose REM sleep behavior disorder. The events
+detected using the above criteria are signal-level events that can be assessed for clinical significance
+on an epoch-by-epoch basis.
 
 ## Getting Started
 
