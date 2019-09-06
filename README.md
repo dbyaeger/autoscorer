@@ -1,6 +1,17 @@
 # autoscorer
 autoscorer is a module for automated scoring of EMG from sleep studies according to AASM guidelines.
 
+## Background
+
+The autoscorer module is designed to detect two types of abnormally high muscle EMG actvity during 
+REM sleep:
+
+* `tonic`: signals of at least one second in duration that are greater than the minimum amplitude 
+during non-REM sleep.
+
+* `phasic`: signals of at least 0.1s duration that are greater than four times the REM sleep
+background EMG activity.
+
 ## Getting Started
 
 Open up a terminal window and type:
