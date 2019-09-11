@@ -1,21 +1,43 @@
 # autoscorer
 autoscorer is a module for automated scoring of EMG from sleep studies according to AASM guidelines.
 
+## Background
+
+The autoscorer module is designed to detect two types of abnormally high muscle EMG actvity during 
+REM sleep:
+
+* `tonic`: signals of at least one second in duration that are greater than the minimum amplitude 
+during non-REM sleep.
+
+* `phasic`: signals of at least 0.1 second in duration that are greater than four times the REM sleep
+background EMG activity.
+
+**Note**: The definition of `tonic` and `phasic` events here is different than the criteria used in
+the American Academy of Sleep Medicine manual to diagnose REM sleep behavior disorder. The events
+detected using the above criteria are signal-level events that can be assessed for clinical significance
+on an epoch-by-epoch basis.
+
 ## Getting Started
 
 Open up a terminal window and type:
 
-`git clone https://github.com/dbyaeger/autoscorer.git`
+```bash
+git clone https://github.com/dbyaeger/autoscorer.git
+```
 
 ## Usage
 
 Change directories into autoscorer with
 
-`cd autoscorer`
+```bash
+cd autoscorer
+```
 
 Then start a python session with
 
-`python`
+```bash
+python
+```
 
 To analyze a single patient ID using the default parameters:
 
@@ -65,7 +87,7 @@ Input data files are expected to named in the format
 
 `patientID_i.p`
 
-where each i corresponds to the index of a REM subsequence, defined as 1 or more consecutive epochs of REM sleep
+where each `i` corresponds to the index of a REM subsequence, defined as 1 or more consecutive epochs of REM sleep
 
 The input data files are pickled Python dictionaries with the following key-value pairs:
 
@@ -88,8 +110,8 @@ The input data files are pickled Python dictionaries with the following key-valu
 
 Dictionary of scored REM subsequences in the format:
 ```python
-        {'RSWA_P': {'REM_0': {scores}, .., 'REM_n': {scores}},
-        'RSWA_T': {'REM_0': {scores}, .., 'REM_n': {scores}}}
+        {'RSWA_P': {'REM_0': [scores], .., 'REM_n': [scores]},
+        'RSWA_T': {'REM_0': [scores], .., 'REM_n': [scores]}}
 ```
 
 Scores can either be outputted as tuples in the format:
@@ -148,7 +170,7 @@ the `score_all` method as named parameters.
 
         p_continuity_threshold: the minimum number of consecutive samples
             exceeding the phasic amplitude threshold in order for a signal to
-            be considered a phasic singal-level event.
+            be considered a phasic signal-level event.
 
         p_baseline_length: The number of seconds that should be considered
             as the baseline when scoring phasic events. Must be a number greater
