@@ -165,11 +165,14 @@ def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> t
     if phasic_start_time_only: times[1] = times[0]
     return tuple(times)
 
-def adjust_rswa_event_times(time_list: list, rem_end_time: int) -> list:
-    """ Adjusts the end time of RSWA events to be no greater than the
-    REM start time. This is required because some annotated events end after
+def adjust_rswa_event_times(time_list: list, rem_start_time: int,
+                            rem_end_time: int) -> list:
+    """ Adjusts the start time of RSWA events to be no greater than the
+    REM start time and the end time of RSWA events to be no greater than the
+    REM end time. This is required because some annotated events end after
     the REM end time.
-    
+        
+        new start time = max(event start time, REM start time)
         new end time = min(event end time, REM end time)
     
     INPUT: list of tuples in the format 
@@ -177,6 +180,63 @@ def adjust_rswa_event_times(time_list: list, rem_end_time: int) -> list:
     
     OUTPUT: list of tuples
     """
-    return [(t[0], min(t[1], rem_end_time), t[2]) for t in time_list]
+    return [(max(t[0], rem_start_time), min(t[1], rem_end_time), t[2]) for t in time_list]
+
+def collapse_p_and_t_events(t_events: list or np.ndarray, p_events: list or np.ndarray,
+                            tuples: bool = False, f_s: int = 10) -> list or np.ndarray:
+    """ Collapses phasic and tonic events into a single track. When events overlap,
+    tonic events are given precedence over phasic events.
+    
+    INPUT:  t_events: list of tuples or array of tonic events, 
+            p_events: list of tuples or array of tonic events,
+            tuples, a boolean that indicates whether events are in tuple or
+            sequence form
+    
+    OUTPUT: list of numpy array with tonic and phasic events collapsed into a
+            single trac. Tonic events are given priority over phasic events.
+            Also returns the number of events where there was overlap of tonic
+            and phasic events.
+    
+    NOTE: Overlaps are counted differently depending on whether tuples option is
+    set to True (and input data type are lists of tuples). In this case, overlaps
+    are counted whenever a T event overlaps with a P event, on an event-by-event
+    basis. If tuples option is set to False (and input data type are numpy arrays),
+    overlaps are counted on a sample-by-sample basis.
+    """
+    if tuples and (len(t_events) > 0) and (len(p_events) > 0):
+        assert type(t_events[0]) == type(p_events[0]) == tuple, f"Tuples option set to true but data in t_events is of type {type(t_events[0])} and data in p_events is of type {type(p_events[0])}!"
+    
+    
+    if not tuples:
+        assert type(t_events) == type(p_events) == np.ndarray, f"If tuples options set to False, both t_events and p_events must be numpy arrays, not {type(t_events)} and {type(p_events)}!"
+    
+    if tuples:
+        overlap_counter = 0
+        single_track = t_events[:]
+        for phasic_event in p_events:
+            add_event = True
+            start, end = phasic_event[0], phasic_event[1]
+            for tonic_event in t_events:
+                if tonic_event[0] <= start <= tonic_event[1]:
+                    overlap_counter += 1
+                    if tonic_event[0] <= end <= tonic_event[1]:
+                        add_event = False
+                    elif end > tonic_event[1]:
+                        start = tonic_event[1] + 1/f_s
+                elif start < tonic_event[0]:
+                    if tonic_event[0] <= end <= tonic_event[1]:
+                        overlap_counter += 1
+                        end = tonic_event[0] - 1/f_s
+            if add_event:
+                single_track.append((start, end, phasic_event[2]))
+    else:
+        t_events[np.nonzero(t_events)] = 2
+        single_track = np.maximum(t_events, p_events)
+        overlap_counter = sum(p_events == 1) - sum(single_track == 1)
+    return single_track, overlap_counter
+        
+        
+        
+        
     
     

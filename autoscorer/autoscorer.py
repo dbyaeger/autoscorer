@@ -15,7 +15,8 @@ from autoscorer.autoscorer_helpers import (get_data,
                                       tuple_builder,
                                       sequence_builder,
                                       round_time,
-                                      adjust_rswa_event_times)
+                                      adjust_rswa_event_times,
+                                      collapse_p_and_t_events)
 
 class Autoscorer(object):
     """ Returns the times of T events and P events scored according to
@@ -127,7 +128,11 @@ class Autoscorer(object):
             events will be returned in the format:
                 
                 (event_start_time, event_start_time, event_type)
-
+        
+        return_multilabel_track: If set to true, tonic and phasic events will
+            be collapsed into a single track for both the annotations and the
+            scored results. Tonic events are given precedence over phasic events.
+        
         verbose: If set to True, ID and REM subsequence number will be printed
             out during scoring.
 
@@ -135,12 +140,13 @@ class Autoscorer(object):
 
     def __init__(self, ID= 'XVZ2FFAEC864IPK', data_path = '/Users/danielyaeger/Documents/processed_data/processed',
                  f_s = 10, t_amplitude_threshold = 1,
-                 t_continuity_threshold = 1000, p_mode = 'mean',
+                 t_continuity_threshold = 10, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
                  p_continuity_threshold = 10, p_baseline_length = 120,
                  ignore_hypoxics_duration = 15, return_seq = True,
-                 return_concat = False, return_tuple = False, 
-                 phasic_start_time_only = True, verbose = True):
+                 return_concat = True, return_tuple = False, 
+                 phasic_start_time_only = False, return_multilabel_track = True,
+                 verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -176,12 +182,16 @@ class Autoscorer(object):
 
         if return_tuple:
             assert return_concat == False, "Return_concat must be False when return_tuple option set to true!"
+        
+        if return_seq and return_multilabel_track:
+            assert return_concat, "return_concat must be set to true when return_seq and return_multilabel_track set to True"
 
         self.return_concat = return_concat
         self.return_seq = return_seq
         self.return_tuple = return_tuple
         self.verbose = verbose
         self.phasic_start_time_only = phasic_start_time_only
+        self.return_multilabel_track = return_multilabel_track
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
         self.make_dicts()
@@ -209,12 +219,45 @@ class Autoscorer(object):
             if self.verbose:
                 print("\tFinished analyzing phasic events...")
             self.rem_subseq += 1
+        if self.return_multilabel_track: self.collapse_rswa_events()
         return self.results_dict
     
-    def get_annotations(self):
+    def collapse_rswa_events(self) -> None:
+        """Changes results_dict and annotations_dict so that T and P events are
+        collapsed into a single track. If return_seq set to True (i.e. results
+        and annotations are returned as sequences, tonic events are coded by 2,
+        phasic events are coded by a 1, and none-events are coded by a 0)
+        """
+        self.collisions = 0
+        multilabel_results, multilabel_annotaions = {}, {}
+        subseq_idxs = sorted(list(self.results_dict['RSWA_T'].keys()))
+        for subseq_idx in subseq_idxs:
+            multilabel_results[subseq_idx], collisions = collapse_p_and_t_events(t_events = self.results_dict['RSWA_T'][subseq_idx],
+                                                                                  p_events = self.results_dict['RSWA_P'][subseq_idx],
+                                                                                  tuples = self.return_tuple,
+                                                                                  f_s = self.f_s)
+            self.collisions += collisions
+            multilabel_annotaions[subseq_idx], _ = collapse_p_and_t_events(t_events = self.annotation_dict['RSWA_T'][subseq_idx],
+                                                                                  p_events = self.annotation_dict['RSWA_P'][subseq_idx],
+                                                                                  tuples = self.return_tuple,
+                                                                                  f_s = self.f_s)
+        self.results_dict, self.annotation_dict = multilabel_results, multilabel_annotaions
+    
+    def get_annotations(self) -> dict:
         """ Returns dictionary of human annotations of tonic and phasic signal-
         level events"""
         return self.annotation_dict
+    
+    def get_collisions(self) -> int:
+        """ Returns number of collisions of phasic and tonic events. The number
+        of collisions is the number of overlapping phasic and tonic events if
+        scoring results are returned as tuples (return_tuple set to True). If
+        scoring results are returned as sequences (return_seq set to True), then
+        the number of collisions is the number of samples which were predicted
+        as both phasic and tonic"""
+        assert self.return_multilabel_track, "Collisions are not calculated if return_multilabel_track option set to False!"
+        return self.collisions
+        
 
     def set_times(self, data: dict) -> None:
         """Sets the rem_start_time, rem_end_time, nrem_start_time, and
@@ -317,6 +360,7 @@ class Autoscorer(object):
         """
         # Sometimes annotated event end time after REM end time and need to correct
         event_times = adjust_rswa_event_times(time_list = data['rswa_events'],
+                                              rem_start_time = self.rem_start_time,
                                               rem_end_time = self.rem_end_time)
         if self.return_tuple:
             for event in event_times:
@@ -464,7 +508,7 @@ class Autoscorer(object):
                 signal = data['signals'][channel][self.nrem_end_time - self.nrem_start_time:].ravel()
             # Mask events during hypoapnea and apnea
             for event in self.a_and_h_idx:
-                signal[event[0]:event[1]+1] = float("-Inf")
+                signal[event[0]:event[1]+1] = -999 #float("-Inf")
             chan_out = np.zeros(len(signal))
             for x in range(len(signal)):
                 chan_out[x] = self.p_amplitude_checker(index = x, data = signal, channel = channel)

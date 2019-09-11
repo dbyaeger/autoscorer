@@ -8,155 +8,231 @@ Created on Tue Aug 27 15:34:54 2019
 import re
 from autoscorer.autoscorer import Autoscorer
 from pathlib import Path
-#import pickle
-import pandas as pd
+import sklearn.metrics as sk
 import numpy as np
+import multiprocessing as mp
 
-def collapse_confusion_matrix(conf_matrix: pd.DataFrame, separate_events: True):
-    if not separate_events:
-        c_mat = np.array([[sum(conf_matrix['TP'].values), sum(conf_matrix['FP'].values)],
-                   [(conf_matrix['FN'].values), sum(conf_matrix['TN'].values)]])
-        rows = pd.Index(['Predicted True', 'Predicted False'], name = 'rows')
-        cols = pd.Index(['Actual True', 'Actual False'], name = 'columns')
-        return pd.DataFrame(data = c_mat, index = rows, columns = cols)
-    else:
-        rows = pd.Index(['Predicted True', 'Predicted False'], name = 'rows')
-        cols = pd.Index(['Actual True', 'Actual False'], name = 'columns')
-        tonic_mat = np.array([[sum(conf_matrix['tonic_TP'].values), sum(conf_matrix['tonic_FP'].values)],
-                   [sum(conf_matrix['tonic_FN'].values), sum(conf_matrix['tonic_TN'].values)]])
-        phasic_mat = np.array([[sum(conf_matrix['phasic_TP'].values), sum(conf_matrix['phasic_FP'].values)],
-                   [sum(conf_matrix['phasic_FN'].values), sum(conf_matrix['phasic_TN'].values)]])
-        return pd.DataFrame(data = tonic_mat, index = rows, columns = cols), pd.DataFrame(data = phasic_mat, index = rows, columns = cols)
-
-
-def confusionMatrix(predictions: dict, annotations: dict, combine_t_and_p: True):
-    """ Input: predictions dictionary, organized by ID, and an annotations (ground
-    truth) dictionary, organized by ID. It is assumed that the data in both
-    the predictions and annotations are in the format of sequences.
+class All_Scorer(object):
+    """ Wrapper class for rule_based_scorer's score() method that will iterate
+    through all files in the data_path and call the score method on each file.
+    See rule_based_scorer for information on parameters.
     
-    Parameters:
-        combine_t_and_p: if selected, the T and P events are combined into a
-        single sequence.
+    INPUT: data_path, path to directory of sleep study .p files"""
     
-    Output: A dataframe with true positives, true negatives, false positives,
-    and false negatives organized by ID"""
-    
-    IDs = list(predictions.keys())
-    if combine_t_and_p:
-        TPs, FPs, TNs, FNs = [], [], [], []
-    else:
-        tTPs, tFPs, tTNs, tFNs = [], [], [], []
-        fTPs, fFPs, fTNs, fFNs = [], [], [], []
-    for ID in IDs:
-        for i,subseq in enumerate(sorted(predictions[ID]['RSWA_T'].keys())):
-            if i == 0:
-                predicted = np.vstack((predictions[ID]['RSWA_T'][subseq], predictions[ID]['RSWA_P'][subseq]))
-                actual = np.vstack((annotations[ID]['RSWA_T'][subseq], annotations[ID]['RSWA_P'][subseq]))
-            else:
-                predicted = np.hstack((predicted, 
-                                       np.vstack((predictions[ID]['RSWA_T'][subseq], predictions[ID]['RSWA_P'][subseq]))))
-                actual = np.hstack((actual,
-                                    np.vstack((annotations[ID]['RSWA_T'][subseq], annotations[ID]['RSWA_P'][subseq]))))
-        if combine_t_and_p:
-            combined_predictions, combined_actual = np.zeros(predicted.shape[0]), np.zeros(actual.shape[0])
-            combined_predictions[np.nonzero(predicted)[1]], combined_actual[np.nonzero(actual)[1]] = 1, 1
-            TPs.append(sum((combined_predictions == 1) & (combined_actual == 1)))
-            FPs.append(sum((combined_predictions == 1) & (combined_actual == 0)))
-            TNs.append(sum((combined_predictions == 0) & (combined_actual == 0)))
-            FNs.append(sum((combined_predictions == 0) & (combined_actual == 1)))
-        else:
-            # Top row of predicted and actual are tonic events
-            tTPs.append(sum((predicted[0,:] == 1) & (actual[0,:] == 1)))
-            tFPs.append(sum((predicted[0,:] == 1) & (actual[0,:] == 0)))
-            tTNs.append(sum((predicted[0,:] == 0) & (actual[0,:] == 0)))
-            tFNs.append(sum((predicted[0,:] == 0) & (actual[0,:] == 1)))
-            # Bottom row of predicted and actual are phasic events
-            fTPs.append(sum((predicted[1,:] == 1) & (actual[1,:] == 1)))
-            fFPs.append(sum((predicted[1,:] == 1) & (actual[1,:] == 0)))
-            fTNs.append(sum((predicted[1,:] == 0) & (actual[1,:] == 0)))
-            fFNs.append(sum((predicted[1,:] == 0) & (actual[1,:] == 1)))
-    if combine_t_and_p: 
-        data_dict = {'ID': IDs, 'TP': TPs, 'FP': FPs, 'TN': TNs, 'FN': FNs}
-    else:
-        data_dict = {'ID': IDs, 'tonic_TP': tTPs, 'tonic_FP': tFPs, 
-                     'tonic_TN': tTNs, 'tonic_FN': tFNs, 'phasic_TP': fTPs,
-                     'phasic_FP': fFPs, 'phasic_TN': fTNs, 'phasic_FN': fFNs}
-    return pd.DataFrame(data = data_dict)
-
-def score_All(data_path = '/Users/danielyaeger/Documents/processed_data/Rectified_and_Resampled',
+    def __init__(self, data_path = '/Users/danielyaeger/Documents/processed_data/processed',
                  f_s = 10, t_amplitude_threshold = 1,
-                 t_continuity_threshold = 10, p_mode = 'mean', 
-                 p_amplitude_threshold = 4, p_quantile = 0.99,
+                 t_continuity_threshold = 10, p_mode = 'quantile', 
+                 p_amplitude_threshold = 4, p_quantile = 0.67,
                  p_continuity_threshold = 1, p_baseline_length = 120,
                  ignore_hypoxics_duration = 15, return_seq = True, 
                  return_concat = True, return_tuple = False, 
                  phasic_start_time_only = True,
-                 verbose = True):
-
-    """ Wrapper method for rule_based_scorer's score() method that will iterate
-    through all files in the data_path and call the score method on each file.
-    See rule_based_scorer for information on parameters.
-    
-    INPUT: data_path, path to directory of sleep study .p files
-    
-    OUTPUT: dictionary of dictionaries with keys that are sleeper IDs, and
-    values that are the output of rule_based_scorer's score() method (i.e. tonic
-    and phasic signal-level event annotations)"""
-    
-    if type(data_path) == str:
+                 return_multilabel_track = True,
+                 verbose = True,
+                 use_muliprocessors = True,
+                 num_processors = 3):
+        
+        if type(data_path) == str:
             data_path = Path(data_path)
-    
-    results_dict = {'params': {'t_amplitude_threshold': t_amplitude_threshold,
-                               't_continuity_threshold': t_continuity_threshold,
-                               'p_mode': p_mode, 'p_amplitude_threshold': p_amplitude_threshold,
-                               'p_quantile': p_quantile, 'p_continuity_threshold': p_continuity_threshold,
-                               'p_baseline_length': p_baseline_length, 
-                               'ignore_hypoxics_duration': ignore_hypoxics_duration}, 
-                    'results': {}}
-    annotations_dict = {}
-    ID_set = set()
-    
-    # Generate list of unique IDs
-    for file in list(data_path.glob('**/*.p')):
-        if len(re.findall('[0-9A-Z]', file.stem)) > 0:
-            ID_set.add(file.stem.split('_')[0])
-    
-    for ID in list(ID_set):
-        #try:
-        scorer = Autoscorer(ID = ID, data_path = data_path,
-                 f_s = f_s,
-                 t_amplitude_threshold = t_amplitude_threshold,
-                 t_continuity_threshold = t_continuity_threshold, 
-                 p_mode = p_mode, 
-                 p_amplitude_threshold = p_amplitude_threshold, 
-                 p_quantile = p_quantile,
-                 p_continuity_threshold = p_continuity_threshold, 
-                 p_baseline_length = p_baseline_length, 
-                 ignore_hypoxics_duration = ignore_hypoxics_duration,
-                 return_seq = return_seq, return_concat = return_concat, 
-                 return_tuple = return_tuple, 
-                 phasic_start_time_only = phasic_start_time_only,
-                 verbose = verbose)
-        results_dict['results'][ID] = scorer.score_REM()
-        annotations_dict[ID] = scorer.get_annotations()
+        
+        self.data_path = data_path
+        self.f_s = f_s
+        self.t_amplitude_threshold = t_amplitude_threshold
+        self.t_continuity_threshold = t_continuity_threshold    
+        self.p_continuity_threshold = p_continuity_threshold
+        self.p_amplitude_threshold = p_amplitude_threshold
+        self.p_quantile = p_quantile
+        self.p_mode = p_mode
+        self.p_baseline_length = p_baseline_length
+        self.ignore_hypoxics_duration = ignore_hypoxics_duration
+        self.return_concat = return_concat
+        self.return_seq = return_seq
+        self.return_tuple = return_tuple
+        self.verbose = verbose
+        self.phasic_start_time_only = phasic_start_time_only
+        self.return_multilabel_track = return_multilabel_track
+        self.use_muliprocessors = use_muliprocessors
+        self.num_processors = num_processors
+        self.make_dicts()
+        self.get_unique_IDs()
+        self.collsions = 0
+        
+    def make_dicts(self):
+        """Makes results dictionary in the format:
             
-        #except AssertionError as e:
-            #print(e)
+        results_dict = {params: {'t_amplitude_threshold': ..., },
+                            results: {'XVZ2FFAEC864IPK': {results_dictionary}, 
+                            ...} }
+        
+        The results_dictionary for each sleeper ID is the output of the 
+        autoscorer instances's score_REM method.
+        
+        Also makes annotation dictionary in the format:
+        
+        annotations_dict = {'XVZ2FFAEC864IPK': annotation_dict, ...}
+        
+        The annotation_dict is the output of the autoscorer instance's
+        get_annotations method.
+        """
     
-    return results_dict, annotations_dict
+        self.results_dict = {'params': {'t_amplitude_threshold': self.t_amplitude_threshold,
+                                   't_continuity_threshold': self.t_continuity_threshold,
+                                   'p_mode': self.p_mode, 'p_amplitude_threshold': self.p_amplitude_threshold,
+                                   'p_quantile': self.p_quantile, 'p_continuity_threshold': self.p_continuity_threshold,
+                                   'p_baseline_length': self.p_baseline_length, 
+                                   'ignore_hypoxics_duration': self.ignore_hypoxics_duration}, 
+                        'results': {}}
+        self.annotations_dict = {}
+    
+    def get_unique_IDs(self):
+        """ Finds all of the unique patient IDs in a directory. A patient ID
+        is expected to contain only numbers and uppercase letters"""
+        
+        ID_set = set()
+        
+        # Generate list of unique IDs
+        for file in list(self.data_path.glob('**/*.p')):
+            if len(re.findall('[0-9A-Z]', file.stem)) > 0:
+                ID_set.add(file.stem.split('_')[0])
+        self.ID_list = list(ID_set)
+               
+    def _score(self, ID) -> tuple:
+        """ Calls the autoscorer score_REM method with the input ID. Returns
+        a tuple containing:
+            (results_dict, annotations_dict, collisions)"""
+        scorer = Autoscorer(ID = ID, data_path = self.data_path,
+                 f_s = self.f_s,
+                 t_amplitude_threshold = self.t_amplitude_threshold,
+                 t_continuity_threshold = self.t_continuity_threshold, 
+                 p_mode = self.p_mode, 
+                 p_amplitude_threshold = self.p_amplitude_threshold, 
+                 p_quantile = self.p_quantile,
+                 p_continuity_threshold = self.p_continuity_threshold, 
+                 p_baseline_length = self.p_baseline_length, 
+                 ignore_hypoxics_duration = self.ignore_hypoxics_duration,
+                 return_seq = self.return_seq, return_concat = self.return_concat, 
+                 return_tuple = self.return_tuple, 
+                 phasic_start_time_only = self.phasic_start_time_only,
+                 return_multilabel_track = self.return_multilabel_track,
+                 verbose = self.verbose)
+        if self.return_multilabel_track:
+            return (scorer.score_REM(), scorer.get_annotations(), scorer.get_collisions())
+        else:
+            return (scorer.score_REM(), scorer.get_annotations())
+    
+    def score_all(self) -> dict:
+        """Scores all patient studies in a directory. Returns results_dict"""
+        if self.use_muliprocessors:
+            pool = mp.Pool(processes=self.num_processors)
+            results = list(pool.map(self._score, self.ID_list))
+        else:
+            results = list(map(self._score, self.ID_list))
+        for i, result in enumerate(results):
+            self.results_dict['results'][self.ID_list[i]] = result[0]
+            self.annotations_dict[self.ID_list[i]] = result[1]
+            if self.return_multilabel_track:
+                self.collsions += result[2]
+        self.combine_IDs()
+        return self.get_scores()
+    
+    def get_scores(self) -> dict:
+        """ Returns results_dict"""
+        return self.results_dict
+    
+    def get_annotations(self) -> dict:
+        """ Returns annotations dict"""
+        return self.annotations_dict
+    
+    def get_collisions(self) -> int:
+        """ Returns number of collisions"""
+        assert self.return_multilabel_track, "Collisions only defined when return_multilabel_track set to True!"
+        return self.collisions
+    
+    def combine_IDs(self) -> None:
+        """ Combines result_dict and annotation_dict across IDs and REM subsequences.
+        y_pred and y_true are either 1-D if return_multilabel_track
+        is set to True, or 2-D numpy ndarrays if not. The arrays are stored
+        as instance attributes"""
+        
+        if self.return_tuple:
+            return
+        
+        for ID in self.ID_list:
+            for i,subseq in enumerate(self.results_dict[ID]['RSWA_T'].keys()):
+                if i == 0:
+                    if not self.return_multilabel_track:
+                        y_pred = np.vstack((self.results_dict[ID]['RSWA_T'][subseq], 
+                                        self.results_dict[ID]['RSWA_P'][subseq]))
+                        y_true = np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
+                                        self.annotations_dict[ID]['RSWA_P'][subseq]))
+                    else:
+                        y_pred = self.results_dict[ID][subseq]
+                        y_true = self.annotations_dict[ID][subseq]
+                else:
+                    if not self.return_multilabel_track:
+                        y_pred = np.hstack((y_pred,
+                                            np.vstack((self.results_dict[ID]['RSWA_T'][subseq], 
+                                        self.results_dict[ID]['RSWA_P'][subseq]))))
+                        y_true = np.hstack((y_true,
+                                            np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
+                                        self.annotations_dict[ID]['RSWA_P'][subseq]))))
+                    else:
+                        y_pred = np.concatentate((y_pred, self.results_dict[ID][subseq]))
+                        y_true = np.concatentate((y_true, self.annotations_dict[ID][subseq]))
+        
+        self.y_pred = y_pred
+        self.y_true = y_true
+
+    def confusion_matrix(self) -> np.ndarray or tuple:
+        """Returns confusion matrix in the form (if return_multilabel_track set
+        to False):
+            
+            array([[TN, FP],
+                   [FN, TP]])
+    
+        Two confusion matrices will be returned, one for tonic and one for phasic
+        in the format:
+            
+            (tonic confusion matrix, phasic confusion matrix)
+            
+        if return_multilabel_track set to False
+        
+        if return_multilabel_track set to True, confusion matrix is in the format:
+            
+            array([[True None, Predicted Phasic/Actually None, Predicted Tonic/Actually None],
+                   [Predicted None/Actually Phasic, True Phasic, Predicted Tonic/Actually Phasic],
+                   [Predicted None/Actually Tonic, Predicted Phasic/Actually Tonic, True Tonic]])
+        """
+        assert not self.return_tuple, "Confusion matrix not yet implemented for return_tuple option"
+        
+        if not self.return_multilabel_track:
+            return (sk.confusion_matrix(y_true = self.y_true[0,:], y_pred = self.y_pred[0,:]),
+                    sk.confusion_matrix(y_true = self.y_true[1,:], y_pred = self.y_pred[1,:]))
+        else:
+            return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
+    
+    def balanced_accuracy(self) -> float or tuple:
+        """Returns the balanced accuracy score, either as a single value if
+        return_multilabel_track is set to True, or as separate scores for
+        tonic and phasic events in the format:
+            
+            (tonic balanced accuracy score, phasic balanced accuracy score)
+        
+        if return_multilabel_track is set to False"""
+        
+        assert not self.return_tuple, "Balanced accuracy not yet implemented for return_tuple option"
+        
+        if not self.return_multilabel_track:
+            return (sk.balanced_accuracy_score(y_true = self.y_true[0,:], y_pred = self.y_pred[0,:]),
+                    sk.balanced_accuracy_score(y_true = self.y_true[1,:], y_pred = self.y_pred[1,:]))
+        else:
+            return sk.balanced_accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
+    
+    
 
 if __name__ == "__main__":
-     data_path = '/Users/danielyaeger/Documents/processed_data/processed'
-     results_dict, annotations_dict = score_All(data_path = data_path)
-     df = confusionMatrix(predictions = results_dict['results'], annotations = annotations_dict, combine_t_and_p = False)
-     df2, df3 = collapse_confusion_matrix(conf_matrix = df, separate_events = True)
-     df2.to_csv('tonic_conf_matrix.csv', index = None, header = True)
-     df3.to_csv('phasic_conf_matrix.csv', index = None, header = True)
-#    master_dict = scoreAll()    
-#    out_path = Path('/Users/danielyaeger/Documents/My_sleep_research_ml')
-#    save_dir_name = 'rule_based_scorer_results'
-#    if not out_path.joinpath(save_dir_name).exists():
-#        out_path.joinpath(save_dir_name).mkdir()
-#    save_path = out_path.joinpath(save_dir_name)
-#    with open(str(save_path.joinpath('Results_Dict')), 'wb') as f_out:
-#        pickle.dump(master_dict,f_out)
+    data_path = '/Users/danielyaeger/Documents/processed_data/processed'
+    all_scorer = All_Scorer(data_path = data_path)
+    results_dict = all_scorer.score_all()
+    conf_mat = all_scorer.confusion_matrix()
+    balanced_accuracy = all_scorer.balanced_accuracy()
