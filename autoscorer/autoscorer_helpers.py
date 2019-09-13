@@ -204,7 +204,7 @@ def collapse_p_and_t_events(t_events: list or np.ndarray, p_events: list or np.n
     overlaps are counted on a sample-by-sample basis.
     """
     if tuples and (len(t_events) > 0) and (len(p_events) > 0):
-        assert type(t_events[0]) == type(p_events[0]) == tuple, f"Tuples option set to true but data in t_events is of type {type(t_events[0])} and data in p_events is of type {type(p_events[0])}!"
+        assert type(t_events[0]) == type(p_events[0]) == tuple, f"Tuples option set to true but data in t_events is {t_events[0]}" #is of type {type(t_events[0])} and data in p_events is of type {type(p_events[0])}!"
     
     
     if not tuples:

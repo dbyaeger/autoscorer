@@ -142,7 +142,7 @@ class Autoscorer(object):
                  f_s = 10, t_amplitude_threshold = 1,
                  t_continuity_threshold = 10, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
-                 p_continuity_threshold = 10, p_baseline_length = 120,
+                 p_continuity_threshold = 1, p_baseline_length = 120,
                  ignore_hypoxics_duration = 15, return_seq = True,
                  return_concat = True, return_tuple = False, 
                  phasic_start_time_only = False, return_multilabel_track = True,
@@ -194,6 +194,8 @@ class Autoscorer(object):
         self.return_multilabel_track = return_multilabel_track
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
+        if self.verbose:
+            print(f"Finding {self.ID}")
         self.make_dicts()
 
 
@@ -508,7 +510,7 @@ class Autoscorer(object):
                 signal = data['signals'][channel][self.nrem_end_time - self.nrem_start_time:].ravel()
             # Mask events during hypoapnea and apnea
             for event in self.a_and_h_idx:
-                signal[event[0]:event[1]+1] = -999 #float("-Inf")
+                signal[event[0]:event[1]+1] = -9999 #float("-Inf")
             chan_out = np.zeros(len(signal))
             for x in range(len(signal)):
                 chan_out[x] = self.p_amplitude_checker(index = x, data = signal, channel = channel)

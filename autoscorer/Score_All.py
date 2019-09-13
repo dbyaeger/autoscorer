@@ -11,6 +11,9 @@ from pathlib import Path
 import sklearn.metrics as sk
 import numpy as np
 import multiprocessing as mp
+import pickle
+import collections
+
 
 class All_Scorer(object):
     """ Wrapper class for rule_based_scorer's score() method that will iterate
@@ -29,8 +32,11 @@ class All_Scorer(object):
                  phasic_start_time_only = True,
                  return_multilabel_track = True,
                  verbose = True,
-                 use_muliprocessors = True,
-                 num_processors = 3):
+                 use_muliprocessors = False,
+                 num_processors = 4,
+                 use_partition = True,
+                 partition_file_name = 'data_partition.p',
+                 partition_mode = "train"):
         
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -53,9 +59,14 @@ class All_Scorer(object):
         self.return_multilabel_track = return_multilabel_track
         self.use_muliprocessors = use_muliprocessors
         self.num_processors = num_processors
+        self.use_partition = True
+        self.partition_file_name = partition_file_name
+        assert partition_mode in ['train', 'test', 'cv'], "Mode must be either train, test, or cv"
+        self.partition_mode = partition_mode
         self.make_dicts()
         self.get_unique_IDs()
         self.collsions = 0
+        self.EPOCH_LEN = 30
         
     def make_dicts(self):
         """Makes results dictionary in the format:
@@ -88,14 +99,23 @@ class All_Scorer(object):
         """ Finds all of the unique patient IDs in a directory. A patient ID
         is expected to contain only numbers and uppercase letters"""
         
-        ID_set = set()
-        
-        # Generate list of unique IDs
-        for file in list(self.data_path.glob('**/*.p')):
-            if len(re.findall('[0-9A-Z]', file.stem)) > 0:
-                ID_set.add(file.stem.split('_')[0])
-        self.ID_list = list(ID_set)
-               
+        if not self.use_partition: 
+
+            ID_set = set()
+            
+            # Generate list of unique IDs
+            for file in list(self.data_path.glob('**/*.p')):
+                if len(re.findall('[0-9A-Z]', file.stem)) > 0:
+                    ID_set.add(file.stem.split('_')[0])
+            self.ID_list = list(ID_set)        
+        else:
+            
+            with self.data_path.joinpath(self.partition_file_name).open('rb') as fh:
+                ID_list = list(pickle.load(fh)[self.partition_mode])
+                ID_list = [x for x in ID_list if len(re.findall('[0-9A-Z]', x)) > 0]
+            ID_list = [s.split('_')[0] for s in ID_list]
+            self.ID_list = list(set(ID_list))
+            
     def _score(self, ID) -> tuple:
         """ Calls the autoscorer score_REM method with the input ID. Returns
         a tuple containing:
@@ -182,7 +202,32 @@ class All_Scorer(object):
         
         self.y_pred = y_pred
         self.y_true = y_true
-
+        
+    def cohen_kappa_epoch(self) -> float:
+        """Calculates inter-rater agreement on an epoch level between human
+        annotations and autoscorer predictions using Cohen's kappa"""
+        
+        assert not self.return_tuple, "Cohen kappa method not yet implemented for return_tuple option"
+        
+        y_pred_label, y_true_label = np.zeros(self.y_pred/(self.f_s*self.EPOCH_LEN)),
+        np.zeros(self.y_pred/(self.f_s*self.EPOCH_LEN))
+        for i in range(0,len(self.y_pred),self.f_s*self.EPOCH_LEN):
+            y_pred_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
+            y_true_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
+        return sk.cohen_kappa_score(y_pred_label,y_true_label)
+            
+    def label_mode(self, epoch: np.ndarray) -> int:
+        """Returns zero if an array contains only zeros. Otherwise returns the
+        most common greater than zero element in the array. If there is a tie
+        between 1 and 2 (phasic and tonic), returns phasic."""
+        if len(epoch[epoch > 0]) == 0:
+            return 0
+        else:
+            counts = collections.Counter(epoch[epoch > 0])
+            if counts[2] > counts[1]: 
+                return 2
+            return 1
+            
     def confusion_matrix(self) -> np.ndarray or tuple:
         """Returns confusion matrix in the form (if return_multilabel_track set
         to False):
@@ -231,8 +276,13 @@ class All_Scorer(object):
     
 
 if __name__ == "__main__":
+    import pickle
+    with open('/Users/danielyaeger/Documents/processed_data/processed/data_partition.p', 'rb') as fh:
+        ID_list = list(pickle.load(fh)["train"])
+    ID_list = [s.split('_')[0] for s in ID_list]
+    ID_list = list(set(ID_list))
     data_path = '/Users/danielyaeger/Documents/processed_data/processed'
-    all_scorer = All_Scorer(data_path = data_path)
+    all_scorer = All_Scorer(data_path = data_path, ID_list = ID_list)
     results_dict = all_scorer.score_all()
     conf_mat = all_scorer.confusion_matrix()
     balanced_accuracy = all_scorer.balanced_accuracy()
