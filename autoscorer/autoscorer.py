@@ -143,9 +143,9 @@ class Autoscorer(object):
                  t_continuity_threshold = 10, p_mode = 'mean',
                  p_amplitude_threshold = 1, p_quantile = 0.99,
                  p_continuity_threshold = 1, p_baseline_length = 120,
-                 ignore_hypoxics_duration = 15, return_seq = True,
-                 return_concat = True, return_tuple = False, 
-                 phasic_start_time_only = False, return_multilabel_track = True,
+                 ignore_hypoxics_duration = 15, return_seq = False,
+                 return_concat = False, return_tuple = True, 
+                 phasic_start_time_only = False, return_multilabel_track = False,
                  verbose = True):
         self.ID = ID
         if type(data_path) == str:
@@ -194,8 +194,6 @@ class Autoscorer(object):
         self.return_multilabel_track = return_multilabel_track
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
-        if self.verbose:
-            print(f"Finding {self.ID}")
         self.make_dicts()
 
 
@@ -212,17 +210,26 @@ class Autoscorer(object):
                                     data_path = self.data_path, channels = self.channels,
                                     f_s = self.f_s, fields = self.fields)
             self.set_times(data)
-            self.p_event_idx = make_event_idx(data = data, channels = self.channels)
+            self.p_event_idx = make_event_idx(channels = self.channels)
+            # add a and h indices to p_event_idx
+            if len(self.a_and_h_idx) > 0: self.add_a_and_h_to_p_event_idx()
             self.add_human_annotations(data)
-            self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.score_Tonics(data)
-            if self.verbose:
-                print("\tFinished analyzing tonic events...")
             self.results_dict['RSWA_P'][f'REM_{self.rem_subseq}'] = self.findP_over_threshold(data)
             if self.verbose:
                 print("\tFinished analyzing phasic events...")
+            self.results_dict['RSWA_T'][f'REM_{self.rem_subseq}'] = self.score_Tonics(data)
+            if self.verbose:
+                print("\tFinished analyzing tonic events...")
             self.rem_subseq += 1
         if self.return_multilabel_track: self.collapse_rswa_events()
         return self.results_dict
+    
+    def add_a_and_h_to_p_event_idx(self):
+        """Adds events in the a_and_h_idx to the p_event_idx so that the events
+        will be excluded from baseline for P events"""
+        for event in self.a_and_h_idx:
+            for channel in self.channels:
+                self.p_event_idx[channel].extend(np.arange(event[0],event[1]+1))
     
     def collapse_rswa_events(self) -> None:
         """Changes results_dict and annotations_dict so that T and P events are
@@ -293,12 +300,13 @@ class Autoscorer(object):
 
 
     def make_a_and_h_list(self, data: dict) -> None:
-        """Also creates a list of tuples as an instance variable called
+        """Creates a list of indices of tuples as an instance variable called
         a_and_h_idx, which is a list of apnea and hypoapneas occuring during
         REM sleep in the format (start index, end index). Returns None."""
         # Create list of tuples of apnea and hypoapnea start and end times
         self.a_and_h_idx = []
         if len(data['apnia_hypopnia_events']) >= 0:
+            #print(f"apnia_hypopnia_events: {data['apnia_hypopnia_events']}")
             for event in data['apnia_hypopnia_events']:
                 if event[1] + self.ignore_hypoxics_duration <= self.rem_start_time:
                     continue
@@ -345,12 +353,12 @@ class Autoscorer(object):
         for file in list(self.data_path.glob('**/*.p')):
             if self.ID in file.stem:
                 num = file.stem.split('_')[1]
-                self.results_dict['RSWA_P'][f'REM_{num}'] = {}
-                self.results_dict['RSWA_T'][f'REM_{num}'] = {}
+                self.results_dict['RSWA_P'][f'REM_{num}'] = []
+                self.results_dict['RSWA_T'][f'REM_{num}'] = []
                 self.baseline_dict['RSWA_P'][f'REM_{num}'] = {}
                 for channel in self.channels:
-                    self.baseline_dict['RSWA_P'][f'REM_{num}'][channel] = {}
-                self.baseline_dict['RSWA_T'][f'REM_{num}'] = {}
+                    self.baseline_dict['RSWA_P'][f'REM_{num}'][channel] = []
+                self.baseline_dict['RSWA_T'][f'REM_{num}'] = []
                 self.annotation_dict['RSWA_P'][f'REM_{num}'] = []
                 self.annotation_dict['RSWA_T'][f'REM_{num}'] = []
                 
@@ -414,6 +422,11 @@ class Autoscorer(object):
         corresponds to a time of less than the value of the p_baseline_length
         parameter. The first p_baseline_length seconds of the array are
         used as baseline.
+        
+            Note: Case 1 can also occur in a later REM subsequence if there is
+            no baseline available from earlier REM subsequences, which occurs
+            when there are apnea and hypoapnea events that occlude the baseline
+            of the earlier REM subsequences.
 
         Case 2: A REM subsequence other than the first is being analyzed, and the
         index to a time of less than the value of the p_baseline_length
@@ -444,7 +457,18 @@ class Autoscorer(object):
             else:
                 baseline_from_current = self.delete_events_from_baseline(data = data[0:index],
                         channel = channel, limit_lo = limit_lo)
-                baseline_from_last = self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq-1}'][channel][-(self.f_s * self.p_baseline_length - index):]
+                i = self.rem_subseq-1
+                baseline_from_last = self.baseline_dict['RSWA_P'][f'REM_{i}'][channel][-(self.f_s * self.p_baseline_length - index):]
+                # Make sure that baseline is non-zero
+                while len(baseline_from_last) == 0:
+                    i -= 1
+                    if i < 0:
+                        # Baseline of 0th REM subsequence is missing so use next two minutes of current subsequence
+                        baseline_from_current = self.delete_events_from_baseline(data=data[0:self.f_s * self.p_baseline_length],
+                        channel = channel, limit_lo = limit_lo)
+                        break
+                    else: 
+                        baseline_from_last = self.baseline_dict['RSWA_P'][f'REM_{i}'][channel][-(self.f_s * self.p_baseline_length - index):]
                 baseline = np.concatenate((baseline_from_last,baseline_from_current))
         else:
             baseline = self.delete_events_from_baseline(data=data[index-self.p_baseline_length*self.f_s:index],
@@ -459,13 +483,16 @@ class Autoscorer(object):
         rule_based_scorer. The limit_lo parameter is the start index of the
         data array with reference to the EMG signal array and the channel
         parameter is the channel that is being analyzed."""
+        
+        index = len(data) - 1
 
         if len(self.p_event_idx[channel]) > 0:
             # Get previous events and convert to an array
-            events = np.asarray(list(set(self.p_event_idx[channel][:])), dtype = int)
+            events = list(set(self.p_event_idx[channel][:]))
 
             # Only consider events occuring in baseline
-            events = events[events >= limit_lo] - limit_lo
+            events = np.array(list(filter(lambda x: limit_lo <= x <= index, events)))
+            events -= limit_lo
 
             # delete events from baseline
             np.delete(data, events)
@@ -509,16 +536,21 @@ class Autoscorer(object):
             else:
                 signal = data['signals'][channel][self.nrem_end_time - self.nrem_start_time:].ravel()
             # Mask events during hypoapnea and apnea
-            for event in self.a_and_h_idx:
-                signal[event[0]:event[1]+1] = -9999 #float("-Inf")
+            if i == 0:
+                rem_indices = np.arange(0,len(signal)-1)
+                if len(self.a_and_h_idx) > 0:
+                    for event in self.a_and_h_idx:
+                        rem_indices = np.array(list(filter(lambda x: x < event[0] or x > event[1], rem_indices)))
             chan_out = np.zeros(len(signal))
-            for x in range(len(signal)):
+            for j in range(len(rem_indices)):
+                x = rem_indices[j]
                 chan_out[x] = self.p_amplitude_checker(index = x, data = signal, channel = channel)
                 # check if an event occured in the past and add to p_event_idx
                 if x >= (self.p_continuity_threshold - 1):
                     if sum(chan_out[x-self.p_continuity_threshold+1:x+1]) >= self.p_continuity_threshold:
                         event_idx = list(np.arange(x-self.p_continuity_threshold+1,x+1))
                         self.p_event_idx[channel].extend(event_idx)
+            #print(f"Chan_out: {chan_out}")
             # Remove events under continuity criterion
             idx = np.nonzero(chan_out > 0)
             groups = self.continuity_thresholder(index = idx[0], event_type ='RSWA_P')
@@ -548,12 +580,21 @@ class Autoscorer(object):
         index value exceeds the metric and a zero otherwise.
         """
         # update baseline
+#        print(f"Index: {index}\t Value: {data[index]}")
         self.set_rem_baseline(data = data, channel = channel, index = index)
         baseline = self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq}'][channel]
+        if len(baseline) < 10:
+            print(f"baseline: {baseline}")
         if self.p_mode == 'quantile':
             if data[index] >= np.quantile(baseline, self.p_quantile): return 1
         if self.p_mode == 'mean':
-            if data[index] >= np.mean(baseline)*self.p_amplitude_threshold: return 1
+#            print(f"Baseline: {baseline}")
+#            print(f"amplitude threshold: {self.p_amplitude_threshold}")
+#            print(f"mean of baseline: {np.mean(baseline)}")
+#            print(f"Value of threshold: {np.mean(baseline)*self.p_amplitude_threshold}")
+            if data[index] >= np.mean(baseline)*self.p_amplitude_threshold:
+#                print("Data exceeded baseline!")
+                return 1
         if self.p_mode == 'stdev':
             if data[index] >= (np.std(baseline)*self.p_amplitude_threshold + np.mean(baseline)):
                 return 1
@@ -576,7 +617,7 @@ class Autoscorer(object):
         """
         if signal is not None:
             assert type(signal) == np.ndarray, f"Signal must a numpy array if baseline is a tuple, not a {type(signal)}!"
-            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']=np.min(signal.ravel())
+            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']=np.abs(np.min(signal.ravel()))
 
         if signal is None:
             if self.rem_subseq > 0:
@@ -607,13 +648,16 @@ class Autoscorer(object):
         nrem_min = self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']
 
         assert type(nrem_min) == np.float64, f"Baseline data unavailable! Baseline: {nrem_min}"
+        
+        # Make copy of signal to avoid altering it
+        signal = data.copy()
 
         # Mask indices during apneas and hypoapneas
         for event in self.a_and_h_idx:
-            data[event[0]:event[1]+1] = float("-Inf")
+            signal[event[0]:event[1]+1] = float("-Inf")
 
         # Calculate indices for values over threshold
-        idx = np.nonzero(data > self.t_amplitude_threshold*nrem_min)[0]
+        idx = np.nonzero(signal > self.t_amplitude_threshold*nrem_min)[0]
 
         groups = self.continuity_thresholder(index = idx, event_type ='RSWA_T')
 

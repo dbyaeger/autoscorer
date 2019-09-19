@@ -7,6 +7,7 @@ Created on Tue Aug 27 15:34:54 2019
 """
 import re
 from autoscorer.autoscorer import Autoscorer
+from autoscorer.clinical_scorer import Clinical_Scorer
 from pathlib import Path
 import sklearn.metrics as sk
 import numpy as np
@@ -63,11 +64,11 @@ class All_Scorer(object):
         self.partition_file_name = partition_file_name
         assert partition_mode in ['train', 'test', 'cv'], "Mode must be either train, test, or cv"
         self.partition_mode = partition_mode
+        self.EPOCH_LEN = 30
         self.make_dicts()
         self.get_unique_IDs()
-        self.collsions = 0
-        self.EPOCH_LEN = 30
-        
+        self.collisions = 0
+
     def make_dicts(self):
         """Makes results dictionary in the format:
             
@@ -151,8 +152,9 @@ class All_Scorer(object):
             self.results_dict['results'][self.ID_list[i]] = result[0]
             self.annotations_dict[self.ID_list[i]] = result[1]
             if self.return_multilabel_track:
-                self.collsions += result[2]
+                self.collisions += result[2]
         self.combine_IDs()
+        self.create_clinical_scorer()
         return self.get_scores()
     
     def get_scores(self) -> dict:
@@ -168,6 +170,24 @@ class All_Scorer(object):
         assert self.return_multilabel_track, "Collisions only defined when return_multilabel_track set to True!"
         return self.collisions
     
+    def get_human_diagnoses(self) -> dict:
+        """Returns human scorer-generated diagnoses based on AASM criteria"""
+        return self.clinical_scorer.get_human_diagnoses()
+    
+    def get_autoscorer_diagnoses(self) -> dict:
+        """Returns autoscorer-generated diagnoses based on AASM critera"""
+        return self.clinical_scorer.pred_diagnosis
+    
+    def create_clinical_scorer(self) -> None:
+        """Initializes a Clinical_Scorer to provide diagnoses"""
+        self.clinical_scorer = Clinical_Scorer(predictions = self.results_dict['results'],
+                                               annotations = self.annotations_dict,
+                                               offset = 0,
+                                               return_multilabel_track = self.return_multilabel_track,
+                                               EPOCH_LEN = self.EPOCH_LEN,
+                                               f_s = self.f_s,
+                                               verbose = self.verbose)
+        
     def combine_IDs(self) -> None:
         """ Combines result_dict and annotation_dict across IDs and REM subsequences.
         y_pred and y_true are either 1-D if return_multilabel_track
@@ -178,44 +198,35 @@ class All_Scorer(object):
             return
         
         for ID in self.ID_list:
-            for i,subseq in enumerate(self.results_dict[ID]['RSWA_T'].keys()):
+            if self.return_multilabel_track:
+                rem_subseqs = self.results_dict['results'][ID].keys()
+            else:
+                rem_subseqs = self.results_dict['results'][ID]['RSWA_T'].keys()
+            for i,subseq in enumerate(rem_subseqs):
                 if i == 0:
                     if not self.return_multilabel_track:
-                        y_pred = np.vstack((self.results_dict[ID]['RSWA_T'][subseq], 
-                                        self.results_dict[ID]['RSWA_P'][subseq]))
+                        y_pred = np.vstack((self.results_dict['results'][ID]['RSWA_T'][subseq], 
+                                        self.results_dict['results'][ID]['RSWA_P'][subseq]))
                         y_true = np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
                                         self.annotations_dict[ID]['RSWA_P'][subseq]))
                     else:
-                        y_pred = self.results_dict[ID][subseq]
+                        y_pred = self.results_dict['results'][ID][subseq]
                         y_true = self.annotations_dict[ID][subseq]
                 else:
                     if not self.return_multilabel_track:
                         y_pred = np.hstack((y_pred,
-                                            np.vstack((self.results_dict[ID]['RSWA_T'][subseq], 
-                                        self.results_dict[ID]['RSWA_P'][subseq]))))
+                                            np.vstack((self.results_dict['results'][ID]['RSWA_T'][subseq], 
+                                        self.results_dict['results'][ID]['RSWA_P'][subseq]))))
                         y_true = np.hstack((y_true,
                                             np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
                                         self.annotations_dict[ID]['RSWA_P'][subseq]))))
                     else:
-                        y_pred = np.concatentate((y_pred, self.results_dict[ID][subseq]))
-                        y_true = np.concatentate((y_true, self.annotations_dict[ID][subseq]))
+                        y_pred = np.concatenate((y_pred, self.results_dict['results'][ID][subseq]))
+                        y_true = np.concatenate((y_true, self.annotations_dict[ID][subseq]))
         
         self.y_pred = y_pred
         self.y_true = y_true
-        
-    def cohen_kappa_epoch(self) -> float:
-        """Calculates inter-rater agreement on an epoch level between human
-        annotations and autoscorer predictions using Cohen's kappa"""
-        
-        assert not self.return_tuple, "Cohen kappa method not yet implemented for return_tuple option"
-        
-        y_pred_label, y_true_label = np.zeros(self.y_pred/(self.f_s*self.EPOCH_LEN)),
-        np.zeros(self.y_pred/(self.f_s*self.EPOCH_LEN))
-        for i in range(0,len(self.y_pred),self.f_s*self.EPOCH_LEN):
-            y_pred_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
-            y_true_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
-        return sk.cohen_kappa_score(y_pred_label,y_true_label)
-            
+                    
     def label_mode(self, epoch: np.ndarray) -> int:
         """Returns zero if an array contains only zeros. Otherwise returns the
         most common greater than zero element in the array. If there is a tie
@@ -228,9 +239,9 @@ class All_Scorer(object):
                 return 2
             return 1
             
-    def confusion_matrix(self) -> np.ndarray or tuple:
-        """Returns confusion matrix in the form (if return_multilabel_track set
-        to False):
+    def confusion_matrix_signals(self) -> np.ndarray or tuple:
+        """Returns signal-level confusion matrix in the form 
+        (if return_multilabel_track set to False):
             
             array([[TN, FP],
                    [FN, TP]])
@@ -256,7 +267,15 @@ class All_Scorer(object):
         else:
             return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
     
-    def balanced_accuracy(self) -> float or tuple:
+    def confusion_matrix_diagnoses(self) -> np.ndarray:
+        """Returns a confusion matrix for diagnoses of RSWA in the form:
+            
+             array([[TN, FP],
+                   [FN, TP]])
+        """
+        return self.clinical_scorer.confusion_matrix()
+    
+    def balanced_accuracy_signals(self) -> float or tuple:
         """Returns the balanced accuracy score, either as a single value if
         return_multilabel_track is set to True, or as separate scores for
         tonic and phasic events in the format:
@@ -272,6 +291,26 @@ class All_Scorer(object):
                     sk.balanced_accuracy_score(y_true = self.y_true[1,:], y_pred = self.y_pred[1,:]))
         else:
             return sk.balanced_accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
+    
+    def cohen_kappa_epoch(self) -> float:
+        """Calculates inter-rater agreement on an epoch level between human
+        annotations and autoscorer predictions using Cohen's kappa"""
+        
+        assert not self.return_tuple, "Cohen kappa method not yet implemented for return_tuple option"
+        y_pred_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
+        y_true_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
+        for i in range(0,len(self.y_pred),self.f_s*self.EPOCH_LEN):
+            y_pred_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
+            y_true_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
+        return sk.cohen_kappa_score(y_pred_label,y_true_label)
+    
+    def balanced_accuracy_diagnosis(self) -> float:
+        """Returns balanced accuracy for RSWA diagnoses"""
+        return self.clinical_scorer.balanced_accuracy()
+    
+    def cohen_kappa_diagnosis(self) -> float:
+        """Returns cohen's kappa for RSWA diagnoses"""
+        return self.clinical_scorer.cohen_kappa_diagnosis()
     
     
 

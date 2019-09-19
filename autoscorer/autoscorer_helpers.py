@@ -50,7 +50,7 @@ def check_fields(data: dict, filename: str, fields: list) -> None:
     for key in fields:
         assert key in data.keys(), f"{key} not found in {filename}!"
 
-def make_event_idx(data: dict, channels: list) -> dict:
+def make_event_idx(channels: list) -> dict:
     """Makes the p_event_idx, which stores phasic events that exceed the
     continuity threshold as these events occur during processing."""
     p_event_idx = {}
