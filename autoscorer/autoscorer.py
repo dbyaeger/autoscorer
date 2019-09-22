@@ -601,7 +601,7 @@ class Autoscorer(object):
         return 0
 
     def get_nrem_baseline(self, signal) -> None:
-        """ Calculates the minimum in the baseline Non-REM sleep Chin EMG.
+        """ Calculates the 5th quantile in the baseline Non-REM sleep Chin EMG.
         Assumes baseline is composed of only non-REM sleep. Updates the
         instance attribute baseline_dict with the minimum of Chin EMG channel
         during baseline period. If insufficient baseline length is encountered
@@ -617,7 +617,7 @@ class Autoscorer(object):
         """
         if signal is not None:
             assert type(signal) == np.ndarray, f"Signal must a numpy array if baseline is a tuple, not a {type(signal)}!"
-            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']=np.abs(np.min(signal.ravel()))
+            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']= np.quantile(a = signal.ravel(), q= 0.05)
 
         if signal is None:
             if self.rem_subseq > 0:

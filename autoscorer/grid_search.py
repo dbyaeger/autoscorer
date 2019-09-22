@@ -62,7 +62,7 @@ def grid_search(params_dict: dict,
         experiment['Cohen_kappa_diagnosis'] = all_scorer.cohen_kappa_diagnosis()
         experiment['balanced_accuracy_diagnosis'] = all_scorer.cohen_kappa_diagnosis()
         experiment_df = pd.DataFrame.from_dict(listify_dict(experiment))
-        results_df = results_df.append(experiment_df)
+        results_df = results_df.append(experiment_df, sort=False)
         results_df.to_csv(str(path_to_csv), index=False)
 
 def listify_dict(d: dict) -> dict:
@@ -85,5 +85,6 @@ if __name__ == "__main__":
     
     grid_search(params_dict = params)
 
+    
 
 

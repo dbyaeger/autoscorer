@@ -16,7 +16,7 @@ class Clinical_Scorer(object):
     INPUT:  predictions: dictionary of predicted P and T events, 
             annotations: human-annotated P and T events
             
-        if return_multilabel_track set to True:
+        if multilabel_track set to True:
                     
             predictions and annotations should be in the format:
                     
@@ -43,7 +43,7 @@ class Clinical_Scorer(object):
             offset: offset in seconds to use when scoring events. For example,
             if offset set to 3s, first epoch will be considered as 3 -> 33s
             
-            return_multilabel_track: if set to True, Clinical_Scorer expects
+            multilabel_track: if set to True, Clinical_Scorer expects
             single scoring track for P and T events. T events are assumed
             to be encoded as 2's and P events as 1's.
     
@@ -64,7 +64,7 @@ class Clinical_Scorer(object):
     """
             
     def __init__(self, predictions: dict, annotations: dict = None, offset: int = 0, 
-                 return_multilabel_track: bool = True, EPOCH_LEN: int = 30,
+                 multilabel_track: bool = True, EPOCH_LEN: int = 30,
                  f_s: int = 10, predict_only: bool = False, verbose: bool = True):
         
         if not predict_only:
@@ -77,26 +77,26 @@ class Clinical_Scorer(object):
         assert type(offset) == int, "Offset must be an integer!"
         offset = offset*f_s
         self.offset = offset
-        assert type(return_multilabel_track) == bool, "Return_multilabel_track must be an int!"
-        self.return_multilabel_track = return_multilabel_track
+        assert type(multilabel_track) == bool, "multilabel_track must be True or False!"
+        self.multilabel_track = multilabel_track
         self.EPOCH_LEN = EPOCH_LEN
         self.f_s = f_s
         self.verbose = verbose
         self.predict_only = predict_only
-        if self.return_multilabel_track:
+        if self.multilabel_track:
             if not self.predict_only:
                 self.multilabel_clinical_score()
                 self.convert_to_vectors()
             else:
                 self.predict_only()
         else:
-            print("Warning! Methods for case that return_multilabel_track set to False not yet implemented!")
+            print("Warning! Methods for case that multilabel_track set to False not yet implemented!")
         
     def predict_only(self):
         """Generates diagnoses for each patient from the input dictionary of
         signal-level annotations"""
         
-        assert self.return_multilabel_track, "Return_multilabel_track must be true to use this method!"
+        assert self.multilabel_track, "multilabel_track must be true to use this method!"
         
         self.pred_diagnosis = {}
         for ID in self.predictions.keys():
@@ -118,7 +118,7 @@ class Clinical_Scorer(object):
         """Generates diagnoses for each patient from the predicted and human-generated
         event annotations"""
         
-        assert self.return_multilabel_track, "Return_multilabel_track must be true to use this method!"
+        assert self.multilabel_track, "multilabel_track must be true to use this method!"
         
         self.pred_diagnosis, self.human_diagnosis = {}, {}
         for ID in self.annotations.keys():
@@ -198,12 +198,12 @@ class Clinical_Scorer(object):
         """
         return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
     
-    def balanced_accuracy(self) -> float:
+    def accuracy_score(self) -> float:
         """Returns balanced accuray score for diagnoses"""
         
         assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
         
-        return sk.balanced_accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
+        return sk.accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
     
     def cohen_kappa_diagnosis(self) -> float:
         """Calculates inter-rater agreement on diagnosis between human

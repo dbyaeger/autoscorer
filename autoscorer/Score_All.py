@@ -153,8 +153,6 @@ class All_Scorer(object):
             self.annotations_dict[self.ID_list[i]] = result[1]
             if self.return_multilabel_track:
                 self.collisions += result[2]
-        self.combine_IDs()
-        self.create_clinical_scorer()
         return self.get_scores()
     
     def get_scores(self) -> dict:
@@ -169,150 +167,7 @@ class All_Scorer(object):
         """ Returns number of collisions"""
         assert self.return_multilabel_track, "Collisions only defined when return_multilabel_track set to True!"
         return self.collisions
-    
-    def get_human_diagnoses(self) -> dict:
-        """Returns human scorer-generated diagnoses based on AASM criteria"""
-        return self.clinical_scorer.get_human_diagnoses()
-    
-    def get_autoscorer_diagnoses(self) -> dict:
-        """Returns autoscorer-generated diagnoses based on AASM critera"""
-        return self.clinical_scorer.pred_diagnosis
-    
-    def create_clinical_scorer(self) -> None:
-        """Initializes a Clinical_Scorer to provide diagnoses"""
-        self.clinical_scorer = Clinical_Scorer(predictions = self.results_dict['results'],
-                                               annotations = self.annotations_dict,
-                                               offset = 0,
-                                               return_multilabel_track = self.return_multilabel_track,
-                                               EPOCH_LEN = self.EPOCH_LEN,
-                                               f_s = self.f_s,
-                                               verbose = self.verbose)
         
-    def combine_IDs(self) -> None:
-        """ Combines result_dict and annotation_dict across IDs and REM subsequences.
-        y_pred and y_true are either 1-D if return_multilabel_track
-        is set to True, or 2-D numpy ndarrays if not. The arrays are stored
-        as instance attributes"""
-        
-        if self.return_tuple:
-            return
-        
-        for ID in self.ID_list:
-            if self.return_multilabel_track:
-                rem_subseqs = self.results_dict['results'][ID].keys()
-            else:
-                rem_subseqs = self.results_dict['results'][ID]['RSWA_T'].keys()
-            for i,subseq in enumerate(rem_subseqs):
-                if i == 0:
-                    if not self.return_multilabel_track:
-                        y_pred = np.vstack((self.results_dict['results'][ID]['RSWA_T'][subseq], 
-                                        self.results_dict['results'][ID]['RSWA_P'][subseq]))
-                        y_true = np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
-                                        self.annotations_dict[ID]['RSWA_P'][subseq]))
-                    else:
-                        y_pred = self.results_dict['results'][ID][subseq]
-                        y_true = self.annotations_dict[ID][subseq]
-                else:
-                    if not self.return_multilabel_track:
-                        y_pred = np.hstack((y_pred,
-                                            np.vstack((self.results_dict['results'][ID]['RSWA_T'][subseq], 
-                                        self.results_dict['results'][ID]['RSWA_P'][subseq]))))
-                        y_true = np.hstack((y_true,
-                                            np.vstack((self.annotations_dict[ID]['RSWA_T'][subseq], 
-                                        self.annotations_dict[ID]['RSWA_P'][subseq]))))
-                    else:
-                        y_pred = np.concatenate((y_pred, self.results_dict['results'][ID][subseq]))
-                        y_true = np.concatenate((y_true, self.annotations_dict[ID][subseq]))
-        
-        self.y_pred = y_pred
-        self.y_true = y_true
-                    
-    def label_mode(self, epoch: np.ndarray) -> int:
-        """Returns zero if an array contains only zeros. Otherwise returns the
-        most common greater than zero element in the array. If there is a tie
-        between 1 and 2 (phasic and tonic), returns phasic."""
-        if len(epoch[epoch > 0]) == 0:
-            return 0
-        else:
-            counts = collections.Counter(epoch[epoch > 0])
-            if counts[2] > counts[1]: 
-                return 2
-            return 1
-            
-    def confusion_matrix_signals(self) -> np.ndarray or tuple:
-        """Returns signal-level confusion matrix in the form 
-        (if return_multilabel_track set to False):
-            
-            array([[TN, FP],
-                   [FN, TP]])
-    
-        Two confusion matrices will be returned, one for tonic and one for phasic
-        in the format:
-            
-            (tonic confusion matrix, phasic confusion matrix)
-            
-        if return_multilabel_track set to False
-        
-        if return_multilabel_track set to True, confusion matrix is in the format:
-            
-            array([[True None, Predicted Phasic/Actually None, Predicted Tonic/Actually None],
-                   [Predicted None/Actually Phasic, True Phasic, Predicted Tonic/Actually Phasic],
-                   [Predicted None/Actually Tonic, Predicted Phasic/Actually Tonic, True Tonic]])
-        """
-        assert not self.return_tuple, "Confusion matrix not yet implemented for return_tuple option"
-        
-        if not self.return_multilabel_track:
-            return (sk.confusion_matrix(y_true = self.y_true[0,:], y_pred = self.y_pred[0,:]),
-                    sk.confusion_matrix(y_true = self.y_true[1,:], y_pred = self.y_pred[1,:]))
-        else:
-            return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
-    
-    def confusion_matrix_diagnoses(self) -> np.ndarray:
-        """Returns a confusion matrix for diagnoses of RSWA in the form:
-            
-             array([[TN, FP],
-                   [FN, TP]])
-        """
-        return self.clinical_scorer.confusion_matrix()
-    
-    def balanced_accuracy_signals(self) -> float or tuple:
-        """Returns the balanced accuracy score, either as a single value if
-        return_multilabel_track is set to True, or as separate scores for
-        tonic and phasic events in the format:
-            
-            (tonic balanced accuracy score, phasic balanced accuracy score)
-        
-        if return_multilabel_track is set to False"""
-        
-        assert not self.return_tuple, "Balanced accuracy not yet implemented for return_tuple option"
-        
-        if not self.return_multilabel_track:
-            return (sk.balanced_accuracy_score(y_true = self.y_true[0,:], y_pred = self.y_pred[0,:]),
-                    sk.balanced_accuracy_score(y_true = self.y_true[1,:], y_pred = self.y_pred[1,:]))
-        else:
-            return sk.balanced_accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
-    
-    def cohen_kappa_epoch(self) -> float:
-        """Calculates inter-rater agreement on an epoch level between human
-        annotations and autoscorer predictions using Cohen's kappa"""
-        
-        assert not self.return_tuple, "Cohen kappa method not yet implemented for return_tuple option"
-        y_pred_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
-        y_true_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
-        for i in range(0,len(self.y_pred),self.f_s*self.EPOCH_LEN):
-            y_pred_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
-            y_true_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
-        return sk.cohen_kappa_score(y_pred_label,y_true_label)
-    
-    def balanced_accuracy_diagnosis(self) -> float:
-        """Returns balanced accuracy for RSWA diagnoses"""
-        return self.clinical_scorer.balanced_accuracy()
-    
-    def cohen_kappa_diagnosis(self) -> float:
-        """Returns cohen's kappa for RSWA diagnoses"""
-        return self.clinical_scorer.cohen_kappa_diagnosis()
-    
-    
 
 if __name__ == "__main__":
     import pickle
@@ -323,5 +178,3 @@ if __name__ == "__main__":
     data_path = '/Users/danielyaeger/Documents/processed_data/processed'
     all_scorer = All_Scorer(data_path = data_path, ID_list = ID_list)
     results_dict = all_scorer.score_all()
-    conf_mat = all_scorer.confusion_matrix()
-    balanced_accuracy = all_scorer.balanced_accuracy()
