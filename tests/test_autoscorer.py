@@ -33,6 +33,7 @@ def test_peaky():
     scorer.rem_subseq = 0
     data = make_fake_data(mode = 'peaky',  baseline_type = 'low', REM_length = 60)
     results = scorer.findP_over_threshold(data = data)
+    print scorer.
     return results
 test_all_same()
 

@@ -52,6 +52,8 @@ class Evaluator(object):
         
         offset: offset in seconds to use when making diagnoses. For example,
             if offset set to 3s, first epoch will be considered as 3 -> 33s
+        
+        verbose: If set to True, then diagnoses will be printed out.
             
     OUTPUTS:
         
@@ -69,7 +71,7 @@ class Evaluator(object):
     
     def __init__(self, predictions: dict, annotations: dict, 
                  multilabel_track: bool = True, EPOCH_LEN: int = 30,
-                 f_s: int = 10, offset: int = 0):
+                 f_s: int = 10, offset: int = 0, verbose: bool = True):
         
         assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
         self.predictions = predictions
@@ -80,6 +82,7 @@ class Evaluator(object):
         self.f_s = f_s 
         self.ID_list = set(self.predictions.keys())
         self.offset = offset
+        self.verbose = verbose
         self.clinical_scorer = Clinical_Scorer(predictions = self.predictions,
                                                annotations = self.annotations,
                                                offset = self.offset,

@@ -139,13 +139,13 @@ class Autoscorer(object):
     """
 
     def __init__(self, ID= 'XVZ2FFAEC864IPK', data_path = '/Users/danielyaeger/Documents/processed_data/processed',
-                 f_s = 10, t_amplitude_threshold = 1,
-                 t_continuity_threshold = 10, p_mode = 'mean',
-                 p_amplitude_threshold = 1, p_quantile = 0.99,
+                 f_s = 10, t_amplitude_threshold = 10,
+                 t_continuity_threshold = 10, p_mode = 'quantile',
+                 p_amplitude_threshold = 1, p_quantile = 0.5,
                  p_continuity_threshold = 1, p_baseline_length = 120,
                  ignore_hypoxics_duration = 15, return_seq = False,
-                 return_concat = False, return_tuple = True, 
-                 phasic_start_time_only = False, return_multilabel_track = False,
+                 return_concat = False, return_tuple = True,
+                 phasic_start_time_only = False, return_multilabel_track = True,
                  verbose = True):
         self.ID = ID
         if type(data_path) == str:
@@ -195,7 +195,8 @@ class Autoscorer(object):
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
         self.make_dicts()
-
+        print(f"Mode: {self.p_mode}")
+        print(f"Quantile: {self.p_quantile}")
 
     def score_REM(self):
         """ For each REM subsequence in directory, scores tonic and phasic events.
@@ -550,7 +551,7 @@ class Autoscorer(object):
                     if sum(chan_out[x-self.p_continuity_threshold+1:x+1]) >= self.p_continuity_threshold:
                         event_idx = list(np.arange(x-self.p_continuity_threshold+1,x+1))
                         self.p_event_idx[channel].extend(event_idx)
-            #print(f"Chan_out: {chan_out}")
+            # print(f"Chan_out: {chan_out}")
             # Remove events under continuity criterion
             idx = np.nonzero(chan_out > 0)
             groups = self.continuity_thresholder(index = idx[0], event_type ='RSWA_P')
@@ -568,9 +569,7 @@ class Autoscorer(object):
         if not self.return_concat:
             return out
         else:
-            concat_out = np.zeros(out.shape[0])
-            concat_out[np.nonzero(out)[1]] = 1
-            return concat_out
+            return np.amax(a=out,axis=1)
 
     def p_amplitude_checker(self, index: int, data: np.ndarray, channel: str) -> int:
         """ Takes the index of the data array, the data array, and the channel
@@ -583,10 +582,9 @@ class Autoscorer(object):
 #        print(f"Index: {index}\t Value: {data[index]}")
         self.set_rem_baseline(data = data, channel = channel, index = index)
         baseline = self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq}'][channel]
-        if len(baseline) < 10:
-            print(f"baseline: {baseline}")
         if self.p_mode == 'quantile':
-            if data[index] >= np.quantile(baseline, self.p_quantile): return 1
+            if data[index] >= np.quantile(baseline, self.p_quantile): 
+                return 1
         if self.p_mode == 'mean':
 #            print(f"Baseline: {baseline}")
 #            print(f"amplitude threshold: {self.p_amplitude_threshold}")
@@ -617,7 +615,7 @@ class Autoscorer(object):
         """
         if signal is not None:
             assert type(signal) == np.ndarray, f"Signal must a numpy array if baseline is a tuple, not a {type(signal)}!"
-            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']= np.quantile(a = signal.ravel(), q= 0.05)
+            self.baseline_dict['RSWA_T'][f'REM_{self.rem_subseq}']= np.quantile(a = signal.ravel(), q= 0.10)
 
         if signal is None:
             if self.rem_subseq > 0:
