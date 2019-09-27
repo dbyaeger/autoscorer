@@ -16,36 +16,25 @@ class Clinical_Scorer(object):
     INPUT:  predictions: dictionary of predicted P and T events, 
             annotations: human-annotated P and T events
             
-        if multilabel_track set to True:
                     
-            predictions and annotations should be in the format:
-                    
-                predictions/annotations = {ID_0: {REM_0: array, REM_1: array, .. REM_n: array},
-                ID_1: {REM_0: array, REM_1: array, .. REM_n: array}, ...}}
-
-                where each array is an array of sample-by-sample RSWA signal-level
-                event scores
-                    
-        Otherwise,
-            
-            predictions and annotations should be in the format:
+        predictions and annotations should be in the format:
                 
-                predictions/annotations = {ID_0: {'RSWA_T': 
-                {REM_0: array, REM_1: array, .. REM_n: array}, 
-                'RSWA_P': {REM_0: array, REM_1: array, .. REM_n: array}},
-                ...}
+            predictions/annotations = {ID_0: {REM_0: array, REM_1: array, .. REM_n: array},
+            ID_1: {REM_0: array, REM_1: array, .. REM_n: array}, ...}}
 
-                where each array is an array of sample-by-sample RSWA signal-level
-                event scores
-                
+            where each array is an array of sample-by-sample RSWA signal-level
+            event scores
+                                 
     PARAMETERS:
             
             offset: offset in seconds to use when scoring events. For example,
             if offset set to 3s, first epoch will be considered as 3 -> 33s
-            
-            multilabel_track: if set to True, Clinical_Scorer expects
-            single scoring track for P and T events. T events are assumed
-            to be encoded as 2's and P events as 1's.
+                        
+            predict_only: If this option is set to True, clinical_scorer will
+            return predicted diagnoses. When using the class in this mode,
+            only predictions should be provided as an input and the annotations
+            should not be passed to the function. No error metrics can be called
+            when using this option.
     
     Output:
         
@@ -64,8 +53,8 @@ class Clinical_Scorer(object):
     """
             
     def __init__(self, predictions: dict, annotations: dict = None, offset: int = 0, 
-                 multilabel_track: bool = True, EPOCH_LEN: int = 30,
-                 f_s: int = 10, predict_only: bool = False, verbose: bool = True):
+                 EPOCH_LEN: int = 30, f_s: int = 10, predict_only: bool = False, 
+                 verbose: bool = True):
         
         if not predict_only:
             assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
@@ -77,20 +66,16 @@ class Clinical_Scorer(object):
         assert type(offset) == int, "Offset must be an integer!"
         offset = offset*f_s
         self.offset = offset
-        assert type(multilabel_track) == bool, "multilabel_track must be True or False!"
-        self.multilabel_track = multilabel_track
         self.EPOCH_LEN = EPOCH_LEN
         self.f_s = f_s
         self.verbose = verbose
         self.predict_only = predict_only
-        if self.multilabel_track:
-            if not self.predict_only:
-                self.multilabel_clinical_score()
-                self.convert_to_vectors()
-            else:
-                self.predict_only()
+        self.rswa_epochs = {}
+        if not self.predict_only:
+            self.multilabel_clinical_score()
+            self.convert_to_vectors()
         else:
-            print("Warning! Methods for case that multilabel_track set to False not yet implemented!")
+            self.predict_only()
         
     def predict_only(self):
         """Generates diagnoses for each patient from the input dictionary of
@@ -117,9 +102,7 @@ class Clinical_Scorer(object):
     def multilabel_clinical_score(self):
         """Generates diagnoses for each patient from the predicted and human-generated
         event annotations"""
-        
-        assert self.multilabel_track, "multilabel_track must be true to use this method!"
-        
+                
         self.pred_diagnosis, self.human_diagnosis = {}, {}
         for ID in self.annotations.keys():
             pred_rswa = False
@@ -134,8 +117,14 @@ class Clinical_Scorer(object):
                     pred = self.predictions[ID][subseq][i:i+self.EPOCH_LEN*self.f_s]
                     if self.check_for_tonic(seq = actual, tonic_symbol = 2) or self.check_for_phasic(seq = actual, phasic_symbol = 1):
                         actual_rswa = True
+                        if ID not in self.rswa_epochs.keys(): 
+                            self.rswa_epochs[ID] = {'human': [actual], 'predicted': []} 
+                        else: self.rswa_epochs[ID]['human'].append(actual)
                     if self.check_for_tonic(seq = pred, tonic_symbol = 2) or self.check_for_phasic(seq = pred, phasic_symbol = 1):
                         pred_rswa = True
+                        if ID not in self.rswa_epochs.keys(): 
+                            self.rswa_epochs[ID] = {'predicted': [pred], 'human': []} 
+                        else: self.rswa_epochs[ID]['predicted'].append(pred)
             self.human_diagnosis[ID] = actual_rswa
             self.pred_diagnosis[ID] = pred_rswa
             if self.verbose:
@@ -166,6 +155,15 @@ class Clinical_Scorer(object):
         if sum([(l == phasic_symbol).any() for l in splits]) >= 5:
             return True
         return False
+    
+    def get_clinically_qualifying_sequences(self):
+        """Returns dictionary of epoch sequences meeting clinical RSWA diagnoses
+        in the format:
+            
+            {ID: {'human': [seq1, seq2, ...], 'predicted': [seq1, seq2, ...]}, }
+        """
+        
+        return self.rswa_epochs
     
     def convert_to_vectors(self):
         """Creates vectors from instance attributes human_diagnosis and pred_diagnosis

@@ -16,7 +16,8 @@ from autoscorer.autoscorer_helpers import (get_data,
                                       sequence_builder,
                                       round_time,
                                       adjust_rswa_event_times,
-                                      collapse_p_and_t_events)
+                                      collapse_p_and_t_events,
+                                      make_matrix_event_track)
 
 class Autoscorer(object):
     """ Returns the times of T events and P events scored according to
@@ -68,13 +69,13 @@ class Autoscorer(object):
             be considered a phasic signal-level event.
 
         p_amplitude_threshold: the mulitple by which phasic ampltudes must
-            exceed the mean (or the number of standard deviations by which
-            the phasic amplitudes must exceed the mean, depending on p_mode) in
-            order to be considered a phasic signal-level event.
+            exceed the mean, p_quantile, (or the number of standard deviations 
+            by which the phasic amplitudes must exceed the mean, depending on 
+            p_mode) in order to be considered a phasic signal-level event.
 
         p_quantile: the quantile of the REM baseline signal that must be
-            exceeded in order for a phasic signal to be considered a phasic
-            event when p_mode is set to 'quantile.'
+            exceeded (by p_amplitude_threshold times) in order for a phasic 
+            signal to be considered a phasic event when p_mode is set to 'quantile.'
 
         p_continuity_threshold: the minimum number of consecutive samples
             exceeding the phasic amplitude threshold in order for a signal to
@@ -132,6 +133,11 @@ class Autoscorer(object):
         return_multilabel_track: If set to true, tonic and phasic events will
             be collapsed into a single track for both the annotations and the
             scored results. Tonic events are given precedence over phasic events.
+            
+        return_matrix_event_track: If set to true, events will be represented by
+            a matrix with dimension number of samples X 3, in which the first
+            column represents no events, the second column is P events, and the
+            third column is T events.
         
         verbose: If set to True, ID and REM subsequence number will be printed
             out during scoring.
@@ -146,7 +152,7 @@ class Autoscorer(object):
                  ignore_hypoxics_duration = 15, return_seq = False,
                  return_concat = False, return_tuple = True,
                  phasic_start_time_only = False, return_multilabel_track = True,
-                 verbose = True):
+                 return_matrix_event_track = True, verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -178,13 +184,16 @@ class Autoscorer(object):
         assert ignore_hypoxics_duration >= 0, "ignore_hypoxics_duration must be greater than or equal to 0!"
         self.ignore_hypoxics_duration = ignore_hypoxics_duration
 
-        assert (return_seq) ^ (return_tuple), "Only one return_seq or return_tuple option can be chosen!"
+        assert return_seq ^ return_tuple, "Only one return_seq or return_tuple option can be chosen!"
 
         if return_tuple:
             assert return_concat == False, "Return_concat must be False when return_tuple option set to true!"
         
         if return_seq and return_multilabel_track:
             assert return_concat, "return_concat must be set to true when return_seq and return_multilabel_track set to True"
+        
+        if return_matrix_event_track:
+            assert return_seq and return_multilabel_track, "return_seq and return_multilabel_track must be set to true when return_matrix_event_track set to True!"
 
         self.return_concat = return_concat
         self.return_seq = return_seq
@@ -192,11 +201,10 @@ class Autoscorer(object):
         self.verbose = verbose
         self.phasic_start_time_only = phasic_start_time_only
         self.return_multilabel_track = return_multilabel_track
+        self.return_matrix_event_track = return_matrix_event_track
         self.fields = ['ID', 'study_start_time', 'staging', 'apnia_hypopnia_events', 'rswa_events', 'signals']
         self.channels = ['Chin', 'L Leg', 'R Leg']
         self.make_dicts()
-        print(f"Mode: {self.p_mode}")
-        print(f"Quantile: {self.p_quantile}")
 
     def score_REM(self):
         """ For each REM subsequence in directory, scores tonic and phasic events.
@@ -251,7 +259,10 @@ class Autoscorer(object):
                                                                                   p_events = self.annotation_dict['RSWA_P'][subseq_idx],
                                                                                   tuples = self.return_tuple,
                                                                                   f_s = self.f_s)
-        self.results_dict, self.annotation_dict = multilabel_results, multilabel_annotaions
+        if not self.return_matrix_event_track:
+            self.results_dict, self.annotation_dict = multilabel_results, multilabel_annotaions
+        else:
+            self.results_dict, self.annotation_dict = make_matrix_event_track(multilabel_results), make_matrix_event_track(multilabel_annotaions)
     
     def get_annotations(self) -> dict:
         """ Returns dictionary of human annotations of tonic and phasic signal-
@@ -551,7 +562,6 @@ class Autoscorer(object):
                     if sum(chan_out[x-self.p_continuity_threshold+1:x+1]) >= self.p_continuity_threshold:
                         event_idx = list(np.arange(x-self.p_continuity_threshold+1,x+1))
                         self.p_event_idx[channel].extend(event_idx)
-            # print(f"Chan_out: {chan_out}")
             # Remove events under continuity criterion
             idx = np.nonzero(chan_out > 0)
             groups = self.continuity_thresholder(index = idx[0], event_type ='RSWA_P')
@@ -579,19 +589,13 @@ class Autoscorer(object):
         index value exceeds the metric and a zero otherwise.
         """
         # update baseline
-#        print(f"Index: {index}\t Value: {data[index]}")
         self.set_rem_baseline(data = data, channel = channel, index = index)
         baseline = self.baseline_dict['RSWA_P'][f'REM_{self.rem_subseq}'][channel]
         if self.p_mode == 'quantile':
-            if data[index] >= np.quantile(baseline, self.p_quantile): 
+            if data[index] >= self.p_amplitude_threshold*np.quantile(baseline, self.p_quantile): 
                 return 1
         if self.p_mode == 'mean':
-#            print(f"Baseline: {baseline}")
-#            print(f"amplitude threshold: {self.p_amplitude_threshold}")
-#            print(f"mean of baseline: {np.mean(baseline)}")
-#            print(f"Value of threshold: {np.mean(baseline)*self.p_amplitude_threshold}")
             if data[index] >= np.mean(baseline)*self.p_amplitude_threshold:
-#                print("Data exceeded baseline!")
                 return 1
         if self.p_mode == 'stdev':
             if data[index] >= (np.std(baseline)*self.p_amplitude_threshold + np.mean(baseline)):

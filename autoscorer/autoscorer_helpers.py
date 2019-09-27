@@ -8,6 +8,7 @@ Created on Wed Aug 21 16:12:42 2019
 import numpy as np
 from pathlib import Path
 import pickle
+from itertools import permutations
 
 def get_data(filename: str, data_path: Path, channels: list, f_s: int,
              fields: list) -> dict:
@@ -143,7 +144,7 @@ def sequence_builder(groups: list, length: int,
         out[idx] = 1
     return out
 
-def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = True) -> tuple:
+def round_time(times: tuple, f_s: int, phasic_start_time_only: bool = False) -> tuple:
     """ Rounds times in a tuple of the format
     
     (start time, end time, type)
@@ -234,6 +235,31 @@ def collapse_p_and_t_events(t_events: list or np.ndarray, p_events: list or np.n
         single_track = np.maximum(t_events, p_events)
         overlap_counter = sum(p_events == 1) - sum(single_track == 1)
     return single_track, overlap_counter
+
+def make_matrix_event_track(seq: np.ndarray, none_symbol: int = 0, 
+                            phasic_symbol: int = 1, tonic_symbol: int = 2) -> np.ndarray:
+    """Takes as input a one-dimensional sequence in which none_events, phasic
+    events, and tonic events are represented by integers (default of 0 for none_event,
+    1 for phasic event, and 2 for tonic_event) and returns a number of samples 
+    by 3 matrix in which the position of the one in each column encodes whether
+    it is a none_event, phasic event, or tonic event. The first column encodes
+    none_event, the second column phasic events, and the thirs column tonic events."""
+    
+    symbols = [none_symbol, phasic_symbol, tonic_symbol]
+    
+    # Check if all event symbols are distinct
+    perm = permutations(symbols,3)
+    assert sum([x[0] == x[1] for x in perm]) == 0, "None_symbol, phasic_symbol, and tonic_symbol are not distinct!"
+    
+    out = np.zeros((len(seq), 3))
+    for i,symbol in enumerate(symbols):
+        if i > 0:
+            # Convert boolean values to integers by adding 0
+            out[:,i] = (seq == symbol) + 0
+    return out
+    
+    
+    
         
         
         

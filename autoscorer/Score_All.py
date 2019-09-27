@@ -7,13 +7,9 @@ Created on Tue Aug 27 15:34:54 2019
 """
 import re
 from autoscorer.autoscorer import Autoscorer
-from autoscorer.clinical_scorer import Clinical_Scorer
 from pathlib import Path
-import sklearn.metrics as sk
-import numpy as np
 import multiprocessing as mp
 import pickle
-import collections
 
 
 class All_Scorer(object):
@@ -35,9 +31,10 @@ class All_Scorer(object):
                  verbose = True,
                  use_muliprocessors = False,
                  num_processors = 4,
-                 use_partition = True,
+                 use_partition = False,
                  partition_file_name = 'data_partition.p',
-                 partition_mode = "train"):
+                 partition_mode = "train",
+                 ID_list = []):
         
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -64,17 +61,21 @@ class All_Scorer(object):
         self.partition_file_name = partition_file_name
         assert partition_mode in ['train', 'test', 'cv'], "Mode must be either train, test, or cv"
         self.partition_mode = partition_mode
+        assert bool(ID_list) ^ use_partition, "Cannot provide an ID list and use partition!"
+        if ID_list:
+            print(ID_list)
+            self.ID_list = ID_list
+        else:
+            self.get_unique_IDs()
         self.EPOCH_LEN = 30
         self.make_dicts()
-        self.get_unique_IDs()
         self.collisions = 0
 
     def make_dicts(self):
         """Makes results dictionary in the format:
             
-        results_dict = {params: {'t_amplitude_threshold': ..., },
-                            results: {'XVZ2FFAEC864IPK': {results_dictionary}, 
-                            ...} }
+        results_dict = {'XVZ2FFAEC864IPK': {results_dictionary}, 
+                        'XYN2GHAEC869JVK': {results_dictionary}, ..}
         
         The results_dictionary for each sleeper ID is the output of the 
         autoscorer instances's score_REM method.
@@ -87,13 +88,7 @@ class All_Scorer(object):
         get_annotations method.
         """
     
-        self.results_dict = {'params': {'t_amplitude_threshold': self.t_amplitude_threshold,
-                                   't_continuity_threshold': self.t_continuity_threshold,
-                                   'p_mode': self.p_mode, 'p_amplitude_threshold': self.p_amplitude_threshold,
-                                   'p_quantile': self.p_quantile, 'p_continuity_threshold': self.p_continuity_threshold,
-                                   'p_baseline_length': self.p_baseline_length, 
-                                   'ignore_hypoxics_duration': self.ignore_hypoxics_duration}, 
-                        'results': {}}
+        self.results_dict = {}
         self.annotations_dict = {}
     
     def get_unique_IDs(self):
@@ -110,13 +105,12 @@ class All_Scorer(object):
                     ID_set.add(file.stem.split('_')[0])
             self.ID_list = list(ID_set)        
         else:
-            
             with self.data_path.joinpath(self.partition_file_name).open('rb') as fh:
                 ID_list = list(pickle.load(fh)[self.partition_mode])
                 ID_list = [x for x in ID_list if len(re.findall('[0-9A-Z]', x)) > 0]
             ID_list = [s.split('_')[0] for s in ID_list]
             self.ID_list = list(set(ID_list))
-            
+        
     def _score(self, ID) -> tuple:
         """ Calls the autoscorer score_REM method with the input ID. Returns
         a tuple containing:
@@ -149,7 +143,7 @@ class All_Scorer(object):
         else:
             results = list(map(self._score, self.ID_list))
         for i, result in enumerate(results):
-            self.results_dict['results'][self.ID_list[i]] = result[0]
+            self.results_dict[self.ID_list[i]] = result[0]
             self.annotations_dict[self.ID_list[i]] = result[1]
             if self.return_multilabel_track:
                 self.collisions += result[2]

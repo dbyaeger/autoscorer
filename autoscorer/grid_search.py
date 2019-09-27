@@ -7,12 +7,12 @@ Created on Thu Sep 12 11:48:39 2019
 """
 from itertools import product
 from autoscorer.Score_All import All_Scorer
+from autoscorer.evaluator import Evaluator
 from pathlib import Path
 import pandas as pd
 
-
 def grid_search(params_dict: dict, 
-                path_to_csv = '/Users/danielyaeger/Documents/autoscorer/results/results.csv'):
+                path_to_csv = '/Users/danielyaeger/Documents/Modules/autoscorer/results/results.csv'):
     """Performs a grid search using parameters. Writes to a csv file and reuses
     csv file if the file exists"""
         
@@ -25,8 +25,7 @@ def grid_search(params_dict: dict,
     columns = ['t_amplitude_threshold', 't_continuity_threshold', 'p_mode',
                'p_amplitude_threshold','p_quantile', 'p_continuity_threshold',
                'p_baseline_length','ignore_hypoxics_duration', 'balanced_accuracy_event',
-               'Cohen_kappa_epoch', 'Cohen_kappa_diagnosis', 'balanced_accuracy_diagnosis',
-               'collisions']
+               'Cohen_kappa_epoch', 'accuracy_score_diagnosis','collisions']
     
     if path_to_csv.exists():
         results_df = pd.read_csv(path_to_csv)
@@ -50,17 +49,19 @@ def grid_search(params_dict: dict,
                  phasic_start_time_only = True,
                  return_multilabel_track = True,
                  verbose = True,
-                 use_muliprocessors = False,
-                 num_processors = 2,
+                 use_muliprocessors = True,
+                 num_processors = 3,
                  use_partition = True,
                  partition_file_name = 'data_partition.p',
-                 partition_mode = "cv")
-        results_dict = all_scorer.score_all()
-        experiment['balanced_accuracy_event'] = all_scorer.balanced_accuracy_signals()
+                 partition_mode = "cv",
+                 ID_list = [])
+        predictions = all_scorer.score_all()
+        annotations = all_scorer.get_annotations()
+        evaluator = Evaluator(predictions = predictions, annotations = annotations)
+        experiment['balanced_accuracy_event'] = evaluator.balanced_accuracy_signals()
         experiment['collisions'] = all_scorer.get_collisions()
-        experiment['Cohen_kappa_epoch'] = all_scorer.cohen_kappa_epoch()
-        experiment['Cohen_kappa_diagnosis'] = all_scorer.cohen_kappa_diagnosis()
-        experiment['balanced_accuracy_diagnosis'] = all_scorer.cohen_kappa_diagnosis()
+        experiment['Cohen_kappa_epoch'] = evaluator.cohen_kappa_epoch()
+        experiment['accuracy_score_diagnosis'] = evaluator.accuracy_score_diagnosis()
         experiment_df = pd.DataFrame.from_dict(listify_dict(experiment))
         results_df = results_df.append(experiment_df, sort=False)
         results_df.to_csv(str(path_to_csv), index=False)
@@ -77,14 +78,14 @@ def listify_dict(d: dict) -> dict:
 
 if __name__ == "__main__":
     
-    params = {'t_amplitude_threshold': [15, 20, 30],
-          'p_mode': ['quantile'], 'p_quantile': [0.50, 0.67, 0.85],
-          't_continuity_threshold': [10], 'p_amplitude_threshold': [4],
-          'p_continuity_threshold': [1], 'p_baseline_length': [120],
+    params = {'t_amplitude_threshold': [1, 2, 5, 10],
+          'p_mode': ['quantile'], 'p_quantile': [0.67, 0.85, 0.99],
+          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [4, 8, 12],
+          'p_continuity_threshold': [1, 2, 5], 'p_baseline_length': [120],
           'ignore_hypoxics_duration': [15]}
     
     grid_search(params_dict = params)
 
-    
+
 
 
