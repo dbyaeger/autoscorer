@@ -152,7 +152,7 @@ class Autoscorer(object):
                  ignore_hypoxics_duration = 15, return_seq = False,
                  return_concat = False, return_tuple = True,
                  phasic_start_time_only = False, return_multilabel_track = True,
-                 return_matrix_event_track = True, verbose = True):
+                 return_matrix_event_track = False, verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)
@@ -259,10 +259,10 @@ class Autoscorer(object):
                                                                                   p_events = self.annotation_dict['RSWA_P'][subseq_idx],
                                                                                   tuples = self.return_tuple,
                                                                                   f_s = self.f_s)
-        if not self.return_matrix_event_track:
-            self.results_dict, self.annotation_dict = multilabel_results, multilabel_annotaions
-        else:
-            self.results_dict, self.annotation_dict = make_matrix_event_track(multilabel_results), make_matrix_event_track(multilabel_annotaions)
+            if self.return_matrix_event_track:
+                multilabel_results[subseq_idx] = make_matrix_event_track(multilabel_results[subseq_idx])
+                multilabel_annotaions[subseq_idx] = make_matrix_event_track(multilabel_annotaions[subseq_idx])
+        self.results_dict, self.annotation_dict = multilabel_results, multilabel_annotaions
     
     def get_annotations(self) -> dict:
         """ Returns dictionary of human annotations of tonic and phasic signal-

@@ -46,10 +46,10 @@ def grid_search(params_dict: dict,
                  ignore_hypoxics_duration = experiment['ignore_hypoxics_duration'], 
                  return_seq = True, 
                  return_concat = True, return_tuple = False, 
-                 phasic_start_time_only = True,
+                 phasic_start_time_only = False,
                  return_multilabel_track = True,
                  verbose = True,
-                 use_muliprocessors = True,
+                 use_muliprocessors = False,
                  num_processors = 3,
                  use_partition = True,
                  partition_file_name = 'data_partition.p',
@@ -78,14 +78,18 @@ def listify_dict(d: dict) -> dict:
 
 if __name__ == "__main__":
     
-    params = {'t_amplitude_threshold': [1, 2, 5, 10],
-          'p_mode': ['quantile'], 'p_quantile': [0.67, 0.85, 0.99],
-          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [4, 8, 12],
-          'p_continuity_threshold': [1, 2, 5], 'p_baseline_length': [120],
+    params = {'t_amplitude_threshold': [1],
+          'p_mode': ['quantile'], 'p_quantile': [0.5],
+          't_continuity_threshold': [10,], 'p_amplitude_threshold': [4],
+          'p_continuity_threshold': [1], 'p_baseline_length': [120],
           'ignore_hypoxics_duration': [15]}
     
     grid_search(params_dict = params)
 
-
+#    params = {'t_amplitude_threshold': [1, 2, 5, 10],
+#          'p_mode': ['quantile'], 'p_quantile': [0.5, 0.67, 0.85, 0.99],
+#          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [2, 4, 8, 12],
+#          'p_continuity_threshold': [1, 2, 5], 'p_baseline_length': [120],
+#          'ignore_hypoxics_duration': [15]}
 
 

@@ -91,16 +91,29 @@ class Evaluator(object):
     def __init__(self, predictions: dict, annotations: dict, 
                  sequence: bool = True, segmentation: bool = False,
                  EPOCH_LEN: int = 30, f_s: int = 10, offset: int = 0,
-                 single_ID: bool = False, verbose: bool = True):
+                 single_ID: bool = False, single_subseq: bool = False,
+                 verbose: bool = True):
         
-        assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
+        if not single_subseq:
+            assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
+        if single_subseq:
+            assert type(predictions) == type(annotations) == np.ndarray, "predictions and annotations must be numpy arrays!"
+            predictions = {'REM_0': predictions}
+            annotations = {'REM_0': annotations}
         assert sequence ^ segmentation, "Only one of segmentation and multilabel track can be set to True"
+        if single_subseq:
+            assert single_subseq and single_ID, "Both single_subseq and single_ID must be set to true to use the single_subseq option!"
         self.sequence = sequence
         self.EPOCH_LEN = EPOCH_LEN
         self.f_s = f_s
         if single_ID:
-            predictions['ID'] = predictions
-            annotations['ID'] = annotations
+            pred_temp, annot_temp = predictions.copy(), annotations.copy()
+            del(predictions)
+            del(annotations)
+            predictions = {}
+            annotations = {}
+            predictions['ID'] = pred_temp
+            annotations['ID'] = annot_temp
         self.ID_list = set(predictions.keys())
         self.offset = offset
         self.verbose = verbose
@@ -108,8 +121,14 @@ class Evaluator(object):
             self.predictions = self.convert_to_sequence(predictions)
             self.annotations = self.convert_to_sequence(annotations)
         else:
-            self.predictions = predictions
-            self.annotations = annotations
+            self.predictions = {}
+            self.annotations = {}
+            for ID in predictions:
+                self.predictions[ID] = {}
+                self.annotations[ID] = {}
+                for subseq in predictions[ID]:
+                    self.predictions[ID][subseq] = self.convert_to_1D(predictions[ID][subseq])
+                    self.annotations[ID][subseq] = self.convert_to_1D(annotations[ID][subseq])
         self.clinical_scorer = Clinical_Scorer(predictions = self.predictions,
                                                annotations = self.annotations,
                                                offset = self.offset,
@@ -125,11 +144,11 @@ class Evaluator(object):
             rem_subseqs = self.predictions[ID].keys()
             for i,subseq in enumerate(rem_subseqs):
                 if i == 0:
-                    y_pred = self.convert_to_1D(self.predictions[ID][subseq])
-                    y_true = self.convert_to_1D(self.annotations[ID][subseq])
+                    y_pred = self.predictions[ID][subseq]
+                    y_true = self.annotations[ID][subseq]
                 else:
-                    y_pred = np.concatenate((y_pred, self.convert_to_1D(self.predictions[ID][subseq])))
-                    y_true = np.concatenate((y_true, self.convert_to_1D(self.annotations[ID][subseq])))
+                    y_pred = np.concatenate((y_pred, self.predictions[ID][subseq]))
+                    y_true = np.concatenate((y_true, self.annotations[ID][subseq]))
         self.y_pred = y_pred
         self.y_true = y_true
                                
