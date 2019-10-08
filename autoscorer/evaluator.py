@@ -71,6 +71,10 @@ class Evaluator(object):
                 'rem_start_time': int, 'rem_end_time': int},
                 'REM_1': {'events': [event_list], 
                 'rem_start_time': int, 'rem_end_time': int}, ... }
+        
+        stride: The stride used when determining clinical diagnoses and
+            inter-labeler agreement. The default stride is 30 s (the default
+            epoch length)
                 
         verbose: If set to True, then diagnoses will be printed out.
             
@@ -91,8 +95,8 @@ class Evaluator(object):
     def __init__(self, predictions: dict, annotations: dict, 
                  sequence: bool = True, segmentation: bool = False,
                  EPOCH_LEN: int = 30, f_s: int = 10, offset: int = 0,
-                 single_ID: bool = False, single_subseq: bool = False,
-                 verbose: bool = True):
+                 stride: int = 30, single_ID: bool = False, 
+                 single_subseq: bool = False, verbose: bool = True):
         
         if not single_subseq:
             assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
@@ -116,6 +120,7 @@ class Evaluator(object):
             annotations['ID'] = annot_temp
         self.ID_list = set(predictions.keys())
         self.offset = offset
+        self.stride = stride
         self.verbose = verbose
         if segmentation:
             self.predictions = self.convert_to_sequence(predictions)
@@ -134,6 +139,7 @@ class Evaluator(object):
                                                offset = self.offset,
                                                EPOCH_LEN = self.EPOCH_LEN,
                                                f_s = self.f_s,
+                                               stride = self.stride,
                                                verbose = self.verbose)
         self.combine_IDs()
         
@@ -196,11 +202,11 @@ class Evaluator(object):
     def cohen_kappa_epoch(self) -> float:
         """Calculates inter-rater agreement on an epoch level between human
         annotations and autoscorer predictions using Cohen's kappa"""
-        y_pred_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
-        y_true_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.EPOCH_LEN)))
-        for i in range(0,len(self.y_pred),self.f_s*self.EPOCH_LEN):
-            y_pred_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
-            y_true_label[i//(self.f_s*self.EPOCH_LEN)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
+        y_pred_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.stride)))
+        y_true_label = np.zeros(int(len(self.y_pred)/(self.f_s*self.stride)))
+        for i in range(0,len(self.y_pred),self.f_s*self.stride):
+            y_pred_label[i//(self.f_s*self.stride)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
+            y_true_label[i//(self.f_s*self.stride)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
         return sk.cohen_kappa_score(y_pred_label,y_true_label)
 
     def label_mode(self, epoch: np.ndarray) -> int:

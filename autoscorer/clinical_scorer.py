@@ -53,8 +53,8 @@ class Clinical_Scorer(object):
     """
             
     def __init__(self, predictions: dict, annotations: dict = None, offset: int = 0, 
-                 EPOCH_LEN: int = 30, f_s: int = 10, predict_only: bool = False, 
-                 verbose: bool = True):
+                 EPOCH_LEN: int = 30, f_s: int = 10, predict_only: bool = False,
+                 stride: int = 30, verbose: bool = True):
         
         if not predict_only:
             assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
@@ -68,6 +68,7 @@ class Clinical_Scorer(object):
         self.offset = offset
         self.EPOCH_LEN = EPOCH_LEN
         self.f_s = f_s
+        self.stride = stride
         self.verbose = verbose
         self.predict_only = predict_only
         self.rswa_epochs = {}
@@ -87,7 +88,7 @@ class Clinical_Scorer(object):
         for ID in self.predictions.keys():
             pred_rswa = False
             for subseq in self.predictions[ID].keys():
-                for i in range(self.offset,len(self.predictions[ID][subseq]), self.EPOCH_LEN*self.f_s):
+                for i in range(self.offset,len(self.predictions[ID][subseq]), self.stride*self.f_s):
                     if i+self.EPOCH_LEN*self.f_s > len(self.predictions[ID][subseq]):
                         if self.verbose:
                             print(f"With self.offset of {self.offset}, last {(len(self.predictions[ID][subseq]) - i)/self.f_s} seconds unscorable")
@@ -108,7 +109,7 @@ class Clinical_Scorer(object):
             pred_rswa = False
             actual_rswa = False
             for subseq in self.annotations[ID].keys():
-                for i in range(self.offset,len(self.annotations[ID][subseq]), self.EPOCH_LEN*self.f_s):
+                for i in range(self.offset,len(self.annotations[ID][subseq]), self.stride*self.f_s):
                     if i+self.EPOCH_LEN*self.f_s > len(self.annotations[ID][subseq]):
                         if self.verbose:
                             print(f"With self.offset of {self.offset}, last {(len(self.annotations[ID][subseq]) - i)/self.f_s} seconds unscorable")

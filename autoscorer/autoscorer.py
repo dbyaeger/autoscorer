@@ -152,7 +152,7 @@ class Autoscorer(object):
                  ignore_hypoxics_duration = 15, return_seq = False,
                  return_concat = False, return_tuple = True,
                  phasic_start_time_only = False, return_multilabel_track = True,
-                 return_matrix_event_track = False, verbose = True):
+                 return_matrix_event_track = True, verbose = True):
         self.ID = ID
         if type(data_path) == str:
             data_path = Path(data_path)

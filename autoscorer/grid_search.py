@@ -10,6 +10,9 @@ from autoscorer.Score_All import All_Scorer
 from autoscorer.evaluator import Evaluator
 from pathlib import Path
 import pandas as pd
+import random
+
+random.seed(30)
 
 def grid_search(params_dict: dict, 
                 path_to_csv = '/Users/danielyaeger/Documents/Modules/autoscorer/results/results.csv'):
@@ -49,15 +52,16 @@ def grid_search(params_dict: dict,
                  phasic_start_time_only = False,
                  return_multilabel_track = True,
                  verbose = True,
-                 use_muliprocessors = False,
-                 num_processors = 3,
+                 use_muliprocessors = True,
+                 num_processors = 2,
                  use_partition = True,
+                 score_all_files_in_dir = False,
                  partition_file_name = 'data_partition.p',
                  partition_mode = "cv",
                  ID_list = [])
         predictions = all_scorer.score_all()
         annotations = all_scorer.get_annotations()
-        evaluator = Evaluator(predictions = predictions, annotations = annotations)
+        evaluator = Evaluator(predictions = predictions, annotations = annotations, sequence = True)
         experiment['balanced_accuracy_event'] = evaluator.balanced_accuracy_signals()
         experiment['collisions'] = all_scorer.get_collisions()
         experiment['Cohen_kappa_epoch'] = evaluator.cohen_kappa_epoch()
@@ -78,17 +82,17 @@ def listify_dict(d: dict) -> dict:
 
 if __name__ == "__main__":
     
-    params = {'t_amplitude_threshold': [1],
-          'p_mode': ['quantile'], 'p_quantile': [0.5],
-          't_continuity_threshold': [10,], 'p_amplitude_threshold': [4],
-          'p_continuity_threshold': [1], 'p_baseline_length': [120],
+    params = {'t_amplitude_threshold': [1, 2, 5],
+          'p_mode': ['quantile'], 'p_quantile': [0.5, 0.67, 0.85],
+          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [2,4,8],
+          'p_continuity_threshold': [1,2,5], 'p_baseline_length': [120],
           'ignore_hypoxics_duration': [15]}
     
     grid_search(params_dict = params)
 
 #    params = {'t_amplitude_threshold': [1, 2, 5, 10],
 #          'p_mode': ['quantile'], 'p_quantile': [0.5, 0.67, 0.85, 0.99],
-#          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [2, 4, 8, 12],
+#          't_continuity_threshold': [10, 15, 20], 'p_amplitude_threshold': [2, 4, 8],
 #          'p_continuity_threshold': [1, 2, 5], 'p_baseline_length': [120],
 #          'ignore_hypoxics_duration': [15]}
 

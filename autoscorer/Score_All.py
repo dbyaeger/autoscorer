@@ -31,7 +31,8 @@ class All_Scorer(object):
                  verbose = True,
                  use_muliprocessors = False,
                  num_processors = 4,
-                 use_partition = False,
+                 score_all_files_in_dir = False,
+                 use_partition = True,
                  partition_file_name = 'data_partition.p',
                  partition_mode = "train",
                  ID_list = []):
@@ -57,13 +58,13 @@ class All_Scorer(object):
         self.return_multilabel_track = return_multilabel_track
         self.use_muliprocessors = use_muliprocessors
         self.num_processors = num_processors
-        self.use_partition = True
+        self.score_all_files_in_dir = score_all_files_in_dir
+        self.use_partition = use_partition
         self.partition_file_name = partition_file_name
         assert partition_mode in ['train', 'test', 'cv'], "Mode must be either train, test, or cv"
         self.partition_mode = partition_mode
-        assert bool(ID_list) ^ use_partition, "Cannot provide an ID list and use partition!"
+        assert bool(ID_list) ^ use_partition ^ score_all_files_in_dir, "Must choose only one option - provide an ID list, use partition, or score all file in directory!"
         if ID_list:
-            print(ID_list)
             self.ID_list = ID_list
         else:
             self.get_unique_IDs()
@@ -95,7 +96,7 @@ class All_Scorer(object):
         """ Finds all of the unique patient IDs in a directory. A patient ID
         is expected to contain only numbers and uppercase letters"""
         
-        if not self.use_partition: 
+        if self.score_all_files_in_dir: 
 
             ID_set = set()
             
@@ -104,7 +105,7 @@ class All_Scorer(object):
                 if len(re.findall('[0-9A-Z]', file.stem)) > 0:
                     ID_set.add(file.stem.split('_')[0])
             self.ID_list = list(ID_set)        
-        else:
+        if self.use_partition:
             with self.data_path.joinpath(self.partition_file_name).open('rb') as fh:
                 ID_list = list(pickle.load(fh)[self.partition_mode])
                 ID_list = [x for x in ID_list if len(re.findall('[0-9A-Z]', x)) > 0]
@@ -161,14 +162,22 @@ class All_Scorer(object):
         """ Returns number of collisions"""
         assert self.return_multilabel_track, "Collisions only defined when return_multilabel_track set to True!"
         return self.collisions
+    
+    def get_scored_IDs(self) -> list:
+        """Returns scored IDs"""
+        return self.ID_list
         
 
-if __name__ == "__main__":
-    import pickle
-    with open('/Users/danielyaeger/Documents/processed_data/processed/data_partition.p', 'rb') as fh:
-        ID_list = list(pickle.load(fh)["train"])
-    ID_list = [s.split('_')[0] for s in ID_list]
-    ID_list = list(set(ID_list))
-    data_path = '/Users/danielyaeger/Documents/processed_data/processed'
-    all_scorer = All_Scorer(data_path = data_path, ID_list = ID_list)
-    results_dict = all_scorer.score_all()
+
+def score_test(n):
+    for i in range(n):
+        all_scorer = All_Scorer(t_amplitude_threshold = 1,t_continuity_threshold = 20, p_mode = 'quantile',
+                        p_amplitude_threshold = 4, p_quantile = 0.5, p_continuity_threshold = 5, return_seq = True,
+                        return_concat = True, return_multilabel_track = True, return_tuple = False,
+                        use_muliprocessors = True, num_processors = 2, use_partition = True, partition_mode = 'test')
+        predictions = all_scorer.score_all()
+        annotations = all_scorer.get_annotations()
+        evaluator = Evaluator(predictions = predictions, annotations = annotations, sequence = True)
+        print(f'Balanced accuracy: {evaluator.balanced_accuracy_signals()}')
+        print(f'Epoch level agreement: {evaluator.cohen_kappa_epoch()}')
+        print(f'Accuracy of diagnoses: {evaluator.accuracy_score_diagnosis()}')   
