@@ -139,8 +139,8 @@ class All_Scorer(object):
     def score_all(self) -> dict:
         """Scores all patient studies in a directory. Returns results_dict"""
         if self.use_muliprocessors:
-            pool = mp.Pool(processes=self.num_processors)
-            results = list(pool.map(self._score, self.ID_list))
+            with mp.Pool(processes=self.num_processors) as pool:
+                results = list(pool.map(self._score, self.ID_list))
         else:
             results = list(map(self._score, self.ID_list))
         for i, result in enumerate(results):
