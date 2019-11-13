@@ -198,11 +198,18 @@ class Clinical_Scorer(object):
         return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
     
     def accuracy_score(self) -> float:
-        """Returns balanced accuray score for diagnoses"""
+        """Returns ccuray score for diagnoses"""
         
         assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
         
         return sk.accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
+    
+    def balanced_accuracy_score(self) -> float:
+        """Returns balanced accuray score for diagnoses"""
+        
+        assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
+        
+        return sk.balanced_accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
     
     def cohen_kappa_diagnosis(self) -> float:
         """Calculates inter-rater agreement on diagnosis between human

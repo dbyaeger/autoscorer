@@ -207,7 +207,11 @@ class Evaluator(object):
         for i in range(0,len(self.y_pred),self.f_s*self.stride):
             y_pred_label[i//(self.f_s*self.stride)] = self.label_mode(epoch = self.y_pred[i:i + (self.f_s*self.EPOCH_LEN)])
             y_true_label[i//(self.f_s*self.stride)] = self.label_mode(epoch = self.y_true[i:i + (self.f_s*self.EPOCH_LEN)])
-        return sk.cohen_kappa_score(y_pred_label,y_true_label)
+        ck = sk.cohen_kappa_score(y_pred_label,y_true_label)
+        # sk learn cohen kappa method returns a nan if there are only single labels
+        #cohen's kappa can't handle single label cases
+        if np.isnan(ck): return 1
+        return ck
 
     def label_mode(self, epoch: np.ndarray) -> int:
         """Returns zero if an array contains only zeros. Otherwise returns the
@@ -220,6 +224,10 @@ class Evaluator(object):
             if counts[2] > counts[1]: 
                 return 2
             return 1
+    
+    def balanced_accuracy_score_diagnosis(self) -> float:
+        """Returns balanced accuracy for RSWA diagnoses"""
+        return self.clinical_scorer.balanced_accuracy_score()
     
     def accuracy_score_diagnosis(self) -> float:
         """Returns balanced accuracy for RSWA diagnoses"""
@@ -316,8 +324,235 @@ class Evaluator(object):
                                                             tuples = False, f_s = self.f_s)
                 seq_dict[ID][subseq] = combined_array
         return seq_dict
-    
-                
+
+
+#class Clinical_Scorer(object):
+#    """Takes dictionary of predicted labels and actual labels as input and produces
+#    a list of patients predicted (diagnosed) to have REM sleep behavior disorder.
+#    
+#    INPUT:  predictions: dictionary of predicted P and T events, 
+#            annotations: human-annotated P and T events
+#            
+#                    
+#        predictions and annotations should be in the format:
+#                
+#            predictions/annotations = {ID_0: {REM_0: array, REM_1: array, .. REM_n: array},
+#            ID_1: {REM_0: array, REM_1: array, .. REM_n: array}, ...}}
+#
+#            where each array is an array of sample-by-sample RSWA signal-level
+#            event scores
+#                                 
+#    PARAMETERS:
+#            
+#            offset: offset in seconds to use when scoring events. For example,
+#            if offset set to 3s, first epoch will be considered as 3 -> 33s
+#                        
+#            predict_only: If this option is set to True, clinical_scorer will
+#            return predicted diagnoses. When using the class in this mode,
+#            only predictions should be provided as an input and the annotations
+#            should not be passed to the function. No error metrics can be called
+#            when using this option.
+#    
+#    Output:
+#        
+#        get_human_diagnoses method -> dictionary of human scorer-based diagnoses 
+#        by patient ID
+#        
+#        get_autoscorer_diagnoses -> dictionary of automated scorer-based diagnoses 
+#        by patient ID
+#        
+#        confusion_matrix method -> confusion matrix for diagnoses
+#        
+#        balanced_accuracy -> balanced accuracy for diagnoses
+#        
+#        cohen_kappa_diagnosis -> cohen's kappa for diagnoses
+#        
+#    """
+#            
+#    def __init__(self, predictions: dict, annotations: dict = None, offset: int = 0, 
+#                 EPOCH_LEN: int = 30, f_s: int = 10, predict_only: bool = False,
+#                 stride: int = 30, verbose: bool = True):
+#        
+#        if not predict_only:
+#            assert type(predictions) == type(annotations) == dict, "predictions and annotations must be dictionaries!"
+#        else:
+#            assert type(predictions) == dict and annotations is None, "predictions must be a dictionary and annotations must be None if predict_only options is used!"
+#        self.predictions = predictions
+#        self.annotations = annotations
+#        assert offset >= 0, "Offset must be greater than or equal to zero!"
+#        assert type(offset) == int, "Offset must be an integer!"
+#        offset = offset*f_s
+#        self.offset = offset
+#        self.EPOCH_LEN = EPOCH_LEN
+#        self.f_s = f_s
+#        self.stride = stride
+#        self.verbose = verbose
+#        self.predict_only = predict_only
+#        self.rswa_epochs = {}
+#        if not self.predict_only:
+#            self.multilabel_clinical_score()
+#            self.convert_to_vectors()
+#        else:
+#            self.predict_only()
+#        
+#    def predict_only(self):
+#        """Generates diagnoses for each patient from the input dictionary of
+#        signal-level annotations"""
+#        
+#        assert self.multilabel_track, "multilabel_track must be true to use this method!"
+#        
+#        self.pred_diagnosis = {}
+#        for ID in self.predictions.keys():
+#            pred_rswa = False
+#            for subseq in self.predictions[ID].keys():
+#                for i in range(self.offset,len(self.predictions[ID][subseq]), self.stride*self.f_s):
+#                    if i+self.EPOCH_LEN*self.f_s > len(self.predictions[ID][subseq]):
+#                        if self.verbose:
+#                            print(f"With self.offset of {self.offset}, last {(len(self.predictions[ID][subseq]) - i)/self.f_s} seconds unscorable")
+#                        break
+#                    pred = self.predictions[ID][subseq][i:i+self.EPOCH_LEN*self.f_s]
+#                    if self.check_for_tonic(seq = pred, tonic_symbol = 2) or self.check_for_phasic(seq = pred, phasic_symbol = 1):
+#                        pred_rswa = True
+#            self.pred_diagnosis[ID] = pred_rswa
+#            if self.verbose:
+#                        print(f"For {ID}:\t predicted RSWA: {pred_rswa}")
+#        
+#    def multilabel_clinical_score(self):
+#        """Generates diagnoses for each patient from the predicted and human-generated
+#        event annotations"""
+#                
+#        self.pred_diagnosis, self.human_diagnosis = {}, {}
+#        for ID in self.annotations.keys():
+#            pred_rswa = False
+#            actual_rswa = False
+#            for subseq in self.annotations[ID].keys():
+#                for i in range(self.offset,len(self.annotations[ID][subseq]), self.stride*self.f_s):
+#                    if i+self.EPOCH_LEN*self.f_s > len(self.annotations[ID][subseq]):
+#                        if self.verbose:
+#                            print(f"With self.offset of {self.offset}, last {(len(self.annotations[ID][subseq]) - i)/self.f_s} seconds unscorable")
+#                        break
+#                    actual = self.annotations[ID][subseq][i:i+self.EPOCH_LEN*self.f_s]
+#                    pred = self.predictions[ID][subseq][i:i+self.EPOCH_LEN*self.f_s]
+#                    if self.check_for_tonic(seq = actual, tonic_symbol = 2) or self.check_for_phasic(seq = actual, phasic_symbol = 1):
+#                        actual_rswa = True
+#                        if ID not in self.rswa_epochs.keys(): 
+#                            self.rswa_epochs[ID] = {'human': [actual], 'predicted': []} 
+#                        else: self.rswa_epochs[ID]['human'].append(actual)
+#                    if self.check_for_tonic(seq = pred, tonic_symbol = 2) or self.check_for_phasic(seq = pred, phasic_symbol = 1):
+#                        pred_rswa = True
+#                        if ID not in self.rswa_epochs.keys(): 
+#                            self.rswa_epochs[ID] = {'predicted': [pred], 'human': []} 
+#                        else: self.rswa_epochs[ID]['predicted'].append(pred)
+#            self.human_diagnosis[ID] = actual_rswa
+#            self.pred_diagnosis[ID] = pred_rswa
+#            if self.verbose:
+#                        print(f"For {ID}:\t predicted RSWA: {pred_rswa},\t human-scored RSWA diagnosis: {actual_rswa}")
+#                
+#    def check_for_tonic(self, seq: np.ndarray, tonic_symbol: int = 2) -> bool:
+#        """ Checks if tonic signal-level events meet AASM criteria. Takes sequence
+#        and tonic_symbol as inputs and returns True if at least half of the elements
+#        of the array are equal to tonic_symbol. Otherwise returns False.
+#        Generally, an epoch of signal should be passed to this function.
+#        """
+#
+#        if sum(seq == tonic_symbol) >= len(seq)/2: 
+#            return True
+#        return False
+#        
+#    def check_for_phasic(self, seq: np.ndarray, phasic_symbol: int = 1) -> bool:
+#        """ Checks if phasic signal-level events meet AASM criteria. Takes sequence
+#        and phasic_symbol as inputs and returns True if, after dividing the signal
+#        into 3s mini-epochs, at least 5 of the mini-epochs contain a phasic event.
+#        Otherwise, returns false. Generally, an epoch of signal should be passed 
+#        to this function."""
+#        
+#        assert len(seq) % 2 == 0, f"Input array should be of even length, but length is {len(seq)}!"
+#        
+#        splits = np.split(ary=seq, indices_or_sections = 10)
+#        
+#        if sum([(l == phasic_symbol).any() for l in splits]) >= 5:
+#            return True
+#        return False
+#    
+#    def get_clinically_qualifying_sequences(self):
+#        """Returns dictionary of epoch sequences meeting clinical RSWA diagnoses
+#        in the format:
+#            
+#            {ID: {'human': [seq1, seq2, ...], 'predicted': [seq1, seq2, ...]}, }
+#        """
+#        
+#        return self.rswa_epochs
+#    
+#    def convert_to_vectors(self):
+#        """Creates vectors from instance attributes human_diagnosis and pred_diagnosis
+#        that are used to generate error metrics"""
+#        
+#        assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
+#        
+#        self.y_pred = np.zeros(len(self.human_diagnosis.keys()))
+#        self.y_true = np.zeros(len(self.human_diagnosis.keys()))
+#        for i, ID in enumerate(self.human_diagnosis.keys()):
+#            self.y_pred[i] = int(self.pred_diagnosis[ID])
+#            self.y_true[i] = int(self.human_diagnosis[ID])
+#    
+#    def get_human_diagnoses(self) -> dict:
+#        """Returns human scorer-generated diagnoses based on AASM criteria"""
+#        
+#        assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
+#        
+#        return self.human_diagnosis
+#    
+#    def get_predicted_diagnoses(self) -> dict:
+#        """Returns predicted diagnoses based on AASM critera"""
+#        return self.pred_diagnosis
+#    
+#    def balanced_accuracy_score_diagnosis(self) -> float:
+#        """Returns balanced accuracy for RSWA diagnoses"""
+#        return self.clinical_scorer.balanced_accuracy_score()
+#    
+#    def confusion_matrix(self) -> np.ndarray:
+#        """Returns a confusion matrix for diagnoses of RSWA in the form:
+#            
+#             array([[TN, FP],
+#                   [FN, TP]])
+#        """
+#        return sk.confusion_matrix(y_true = self.y_true, y_pred = self.y_pred)
+#    
+#    def accuracy_score(self) -> float:
+#        """Returns balanced accuray score for diagnoses"""
+#        
+#        assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
+#        
+#        return sk.accuracy_score(y_true = self.y_true, y_pred = self.y_pred)
+#    
+#    def cohen_kappa_diagnosis(self) -> float:
+#        """Calculates inter-rater agreement on diagnosis between human
+#        annotations and autoscorer predictions using Cohen's kappa"""
+#        
+#        assert not self.predict_only, "Method cannot be used if predict_only option set to True!"
+#        
+#        return sk.cohen_kappa_score(self.y_true,self.y_pred)
+#
+#def convert_to_rem_idx(time: float, rem_start_time: int, rem_end_time: int,
+#                       f_s: int) -> int:
+#    """Converts a time during REM to an index. Returns the index relative
+#    to the start of the signal only containing REM.
+#    """
+#
+#    assert rem_start_time <= time <= rem_end_time, f"Time {time} is not between REM start at {rem_start_time} and REM end at {rem_end_time}!"
+#
+#    time -= rem_start_time
+#
+#    seconds_idx = (time // 1)*f_s
+#
+#    frac_idx = np.floor((time % 1)*f_s)
+#
+#    return min(int(seconds_idx +  frac_idx), (rem_end_time - rem_start_time)*f_s - 1)
+#    
+#        
+#        
+#    
+#                
 
 
             
